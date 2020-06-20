@@ -1,4 +1,4 @@
-{ crossSystem ? null, target ? null }:
+{ crossSystem ? null, target ? null, targetPkgsOverride ? null }:
 
 let
   sources = import nix/sources.nix;
@@ -10,7 +10,7 @@ let
   # We need the `target` attribute for windows builds so we can override it with `x86_64-pc-windows-gnu`.
   # Normally we could just take the target triple but `mingwW64`'s triple doesn't match with a supported
   # rust toolchain.
-  targetPkgs = import sources.nixpkgs { inherit crossSystem; };
+  targetPkgs = if targetPkgsOverride == null then hostPkgs else targetPkgsOverride;
 
   rustChannelTargets = hostPkgs.lib.remove null [target];
   rustChannel = hostPkgs.rustChannelOfTargets "stable" null rustChannelTargets;
@@ -24,11 +24,34 @@ in
     pname = "nestalgic";
     version = "0.0.1";
 
+
+    # A list of dependencies whose host platform is the new derivation's build platform
+    #
+    # a.k.a build time dependencies
+    nativeBuildInputs = [
+      hostPkgs.pkg-config
+      targetPkgs.xorg.libX11
+    ];
+
+    # a.k.a run time dependencies
+    buildInputs = [
+      targetPkgs.xorg.libX11
+    ];
+
+    # Patch for "failed to create directory `/homeless-shelter/.cargo/...`" issue.
+    # See: https://github.com/NixOS/nixpkgs/issues/61618
+    preConfigure = ''
+      export HOME=`mktemp -d`
+      export PKG_CONFIG_ALLOW_CROSS=1;
+    '';
+
     src = builtins.filterSource
       (path: type: type != "directory" || builtins.baseNameOf path != "target")
       ./.;
 
     inherit target;
 
-    cargoSha256 = "0jacm96l1gw9nxwavqi1x4669cg6lzy9hr18zjpwlcyb3qkw9z7f";
+    doCheck = false;
+
+    cargoSha256 = "1l012vfg5ncrgn7kmq9knl74vv0ljvzlhb4lwin1h86wl8z2a0dz";
   }
