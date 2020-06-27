@@ -1,6 +1,7 @@
 let
   sources = import nix/sources.nix;
   pkgs = import sources.nixpkgs { overlays = [(import sources.nixpkgs-mozilla)]; };
+  unstable = import sources.nixpkgs-unstable {};
 
   rust = pkgs.rustChannelOfTargets "stable" null [];
 
@@ -12,6 +13,10 @@ pkgs.mkShell {
     rustc
     cargo
 
+    rustfmt
+    unstable.rust-analyzer
+
+    # Library dependencies:
     pkgconfig
   ];
 
