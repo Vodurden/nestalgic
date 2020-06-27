@@ -42,7 +42,6 @@ in
     # See: https://github.com/NixOS/nixpkgs/issues/61618
     preConfigure = ''
       export HOME=`mktemp -d`
-      export PKG_CONFIG_ALLOW_CROSS=1;
     '';
 
     src = builtins.filterSource
