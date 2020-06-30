@@ -1,0 +1,12 @@
+[package]
+name = "nestalgic_ui"
+version = "0.1.0"
+authors = ["Jake Woods <jake@jakewoods.net>"]
+edition = "2018"
+
+[dependencies]
+env_logger = "0.7.1"
+log = { version = "0.4.8", features = [ "release_max_level_warn" ] }
+pixels = "0.0.4"
+winit = "0.22.0"
+winit_input_helper = "0.6.0"

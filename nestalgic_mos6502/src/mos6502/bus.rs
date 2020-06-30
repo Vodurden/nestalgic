@@ -1,5 +1,3 @@
-use std::fmt;
-
 use super::{NMI_VECTOR_ADDRESS, INITIALIZATION_VECTOR_ADDRESS};
 
 pub trait Bus {

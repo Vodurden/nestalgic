@@ -8,11 +8,12 @@ mod register;
 use std::convert::TryFrom;
 
 use addressing_mode::AddressingMode;
-use bus::{Bus, RamBus16kb};
 use instruction::Instruction;
 use opcode::Opcode;
 use error::Error;
 use register::Register;
+
+pub use bus::Bus;
 
 pub type Result<A> = std::result::Result<A, Error>;
 
@@ -118,7 +119,6 @@ impl<B: Bus> MOS6502<B> {
     /// When called: Simulates the `reset` input of the 6502.
     pub fn reset(&mut self) {
         // On reset we set the program counter to whatever address is stored at this location
-        let reset_address = 0xFFFC;
         let target_address = self.bus.read_u16(INITIALIZATION_VECTOR_ADDRESS);
         self.pc = target_address;
     }
@@ -188,6 +188,11 @@ impl<B: Bus> MOS6502<B> {
             // Stack Operations
             Opcode::TSX => self.op_transfer(Register::SP, Register::X),
             Opcode::TXS => self.op_transfer(Register::X, Register::SP),
+            Opcode::PHA => self.op_push_stack(Register::A),
+            Opcode::PHP => self.op_push_stack(Register::P),
+            Opcode::PLA => self.op_pull_stack(Register::A),
+            Opcode::PLP => self.op_pull_stack(Register::P),
+
 
             _ => Ok(())
         }
@@ -266,13 +271,20 @@ impl<B: Bus> MOS6502<B> {
                 Ok(address)
             },
 
-            AddressingMode::IndirectX => {
-                todo!()
+            AddressingMode::IndexedIndirect => {
+                let indexed_address = self.read_next_u8();
+                let indexed_address = indexed_address.wrapping_add(self.x);
+                let address = self.bus.read_u16(indexed_address as u16);
+                Ok(address)
             },
 
-            AddressingMode::IndirectY => {
-                todo!()
-            },
+            AddressingMode::IndirectIndexed => {
+                let indexed_address = self.read_next_u8();
+                let address = self.bus.read_u16(indexed_address as u16);
+                let address = address.wrapping_add(self.y as u16);
+                // TODO: Add Carry Bit
+                Ok(address)
+            }
 
             invalid_mode => Err(Error::InvalidAddressRead(invalid_mode))
         }
@@ -310,11 +322,27 @@ impl<B: Bus> MOS6502<B> {
         self.write_register(target, value);
         Ok(())
     }
+
+    fn op_push_stack(&mut self, source: Register) -> Result<()> {
+        let value = self.read_register(source);
+        self.bus.write_u8(self.sp as u16, value);
+        self.sp -= 1;
+        Ok(())
+    }
+
+    fn op_pull_stack(&mut self, target: Register) -> Result<()> {
+        let value = self.bus.read_u8(self.sp as u16);
+        self.write_register(target, value);
+        self.sp += 1;
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::bus::RamBus16kb;
 
     /// When the `MOS6502` initializes it should start the program counter
     /// at the address stored in 0xFFFC
@@ -323,7 +351,7 @@ mod tests {
         let mut bus = RamBus16kb::new();
         bus.write_u16(0xFFFC, 0xFF00);
 
-        let mut cpu = MOS6502::new(bus);
+        let cpu = MOS6502::new(bus);
 
         assert_eq!(cpu.pc, 0xFF00);
     }

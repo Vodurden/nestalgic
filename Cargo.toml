@@ -1,15 +1,6 @@
-[package]
-name = "nestalgic"
-version = "0.1.0"
-authors = ["Jake Woods <jake@jakewoods.net>"]
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-thiserror = "1.0"
-env_logger = "0.7.1"
-log = { version = "0.4.8", features = [ "release_max_level_warn" ] }
-pixels = "0.0.4"
-winit = "0.22.0"
-winit_input_helper = "0.6.0"
+[workspace]
+members = [
+    "nestalgic_mos6502",
+    "nestalgic_rom",
+    "nestalgic_ui"
+]
