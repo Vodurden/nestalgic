@@ -229,11 +229,19 @@ impl<B: Bus> MOS6502<B> {
             Opcode::JMP => self.op_jump(instruction),
             Opcode::JSR => self.op_jump_subroutine(instruction),
 
-            // System Functions
-            Opcode::BRK => Ok(()),
-            // Opcode::BRK => self.op_brk,
+            // Status Flag Functions
+            Opcode::CLC => Ok(self.p.set(StatusFlag::Carry, false)),
+            Opcode::CLD => Ok(self.p.set(StatusFlag::DecimalMode, false)),
+            Opcode::CLI => Ok(self.p.set(StatusFlag::InterruptDisable, false)),
+            Opcode::CLV => Ok(self.p.set(StatusFlag::Overflow, false)),
+            Opcode::SEC => Ok(self.p.set(StatusFlag::Carry, true)),
+            Opcode::SED => Ok(self.p.set(StatusFlag::DecimalMode, true)),
+            Opcode::SEI => Ok(self.p.set(StatusFlag::InterruptDisable, true)),
 
-            _ => Ok(())
+            // System Functions
+            Opcode::NOP => Ok(()),
+
+            _ => todo!(),
         }
     }
 
