@@ -165,15 +165,15 @@ impl<B: Bus> MOS6502<B> {
     }
 
     pub fn next_instruction(&self) -> Result<Instruction> {
-        let (instruction, _) = Instruction::try_from_bus(self.pc, &self.bus)?;
+        let (instruction, _, _) = Instruction::try_from_bus(self.pc, &self.bus)?;
         Ok(instruction)
     }
 
     fn read_instruction(&mut self) -> Result<Instruction> {
         // We always read an address, even for `implied` and `accumulate` addressing modes
         // to mimic the cycle behavior of the 6502.
-        let (instruction, bytes_read) = Instruction::try_from_bus(self.pc, &self.bus)?;
-        self.pc += bytes_read;
+        let (instruction, bytes_read, bytes_used) = Instruction::try_from_bus(self.pc, &self.bus)?;
+        self.pc += bytes_used;
 
         // We don't need to wait for the first cycle, we're in it!
         self.wait_cycles += (bytes_read as u32) - 1;
@@ -196,6 +196,11 @@ impl<B: Bus> MOS6502<B> {
     fn write_u8(&mut self, address: Address, value: u8) {
         self.bus.write_u8(address, value);
         self.wait_cycles += 1;
+    }
+
+    fn write_u16(&mut self, address: Address, value: u16) {
+        self.bus.write_u16(address, value);
+        self.wait_cycles += 2;
     }
 
     fn execute_instruction(&mut self, instruction: Instruction) -> Result<()> {
@@ -222,6 +227,7 @@ impl<B: Bus> MOS6502<B> {
 
             // Jumps & Calls
             Opcode::JMP => self.op_jump(instruction),
+            Opcode::JSR => self.op_jump_subroutine(instruction),
 
             // System Functions
             Opcode::BRK => Ok(()),
@@ -255,6 +261,28 @@ impl<B: Bus> MOS6502<B> {
 
         self.p.set(StatusFlag::Zero, value == 0);
         self.p.set(StatusFlag::Negative, value & 0b1000_0000 > 0);
+    }
+
+    fn push_stack_u8(&mut self, value: u8) {
+        self.write_u8(self.sp as u16, value);
+        self.sp -= 1;
+    }
+
+    fn pull_stack_u8(&mut self) -> u8 {
+        let value = self.read_u8(self.sp as u16);
+        self.sp += 1;
+        value
+    }
+
+    fn push_stack_u16(&mut self, value: u16) {
+        self.write_u16(self.sp as u16, value);
+        self.sp -= 2;
+    }
+
+    fn pull_stack_u16(&mut self) -> u16 {
+        let value = self.read_u16(self.sp as u16);
+        self.sp += 2;
+        value
     }
 
     fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<u16> {
@@ -328,20 +356,31 @@ impl<B: Bus> MOS6502<B> {
 
     fn op_push_stack(&mut self, source: Register) -> Result<()> {
         let value = self.read_register(source);
-        self.bus.write_u8(self.sp as u16, value);
-        self.sp -= 1;
+        self.push_stack_u8(value);
         Ok(())
     }
 
     fn op_pull_stack(&mut self, target: Register) -> Result<()> {
-        let value = self.bus.read_u8(self.sp as u16);
+        let value = self.pull_stack_u8();
         self.write_register(target, value);
-        self.sp += 1;
         Ok(())
     }
 
     fn op_jump(&mut self, instruction: Instruction) -> Result<()> {
         let address = self.try_read_instruction_target_address(instruction)?;
+        self.pc = address;
+        Ok(())
+    }
+
+    fn op_jump_subroutine(&mut self, instruction: Instruction) -> Result<()> {
+        let address = self.try_read_instruction_target_address(instruction)?;
+
+        // Calculating the return_address costs 1 cycle on the 6502
+        let return_address = self.pc - 1;
+        self.wait_cycles += 1;
+
+        self.push_stack_u16(return_address);
+
         self.pc = address;
         Ok(())
     }

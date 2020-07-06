@@ -29,10 +29,18 @@ pub struct Instruction {
 impl Instruction {
     /// Attempt to read an instruction from `bus` starting from `start_address`.
     ///
-    /// Returns either a failure or the `Instruction` and the number of bytes read from the bus.
-    pub fn try_from_bus(start: Address, bus: &impl Bus) -> Result<(Instruction, u16)> {
+    /// Returns either a failure or:
+    ///
+    /// - The `Instruction`
+    /// - The number of bytes read from the bus
+    /// - The number of bytes used to construct the instruction
+    ///
+    /// For most operations bytes_read and bytes_used will be the same. The exceptions are
+    /// `AddressingMode::Implied` and `AddressingMode::Accumulator` where the 6502 reads
+    /// 1 byte but uses 0
+    pub fn try_from_bus(start: Address, bus: &impl Bus) -> Result<(Instruction, u16, u16)> {
         let (signature, signature_bytes_read) = InstructionSignature::try_from_bus(start, bus)?;
-        let (argument, argument_bytes_read) = InstructionArgument::from_bus(
+        let (argument, argument_bytes_read, argument_bytes_used) = InstructionArgument::from_bus(
             signature.addressing_mode,
             start + signature_bytes_read,
             bus
@@ -44,8 +52,9 @@ impl Instruction {
             argument
         };
         let bytes_read = signature_bytes_read + argument_bytes_read;
+        let bytes_used = signature_bytes_read + argument_bytes_used;
 
-        Ok((instruction, bytes_read))
+        Ok((instruction, bytes_read, bytes_used))
     }
 }
 
@@ -68,73 +77,77 @@ pub enum InstructionArgument {
 }
 
 impl InstructionArgument {
-    pub fn from_bus(addressing_mode: AddressingMode, start: Address, bus: &impl Bus) -> (InstructionArgument, u16) {
+    pub fn from_bus(
+        addressing_mode: AddressingMode,
+        start: Address,
+        bus: &impl Bus
+    ) -> (InstructionArgument, u16, u16) {
         match addressing_mode {
             AddressingMode::Implied => {
                 // The 6502 always reads from the bus even if the `AddressingMode` doesn't actually use the value.
                 let _ = bus.read_u8(start);
-                (InstructionArgument::Implied, 1)
+                (InstructionArgument::Implied, 1, 0)
             }
 
             AddressingMode::Accumulator => {
                 // The 6502 always reads from the bus even if the `AddressingMode` doesn't actually use the value.
                 let _ = bus.read_u8(start);
-                (InstructionArgument::Accumulator, 1)
+                (InstructionArgument::Accumulator, 1, 0)
             }
 
             AddressingMode::Immediate => {
                 let value = bus.read_u8(start);
-                (InstructionArgument::Immediate(value), 1)
+                (InstructionArgument::Immediate(value), 1, 1)
             }
 
             AddressingMode::ZeroPage => {
                 let address = bus.read_u8(start);
-                (InstructionArgument::ZeroPage(address), 1)
+                (InstructionArgument::ZeroPage(address), 1, 1)
             }
 
             AddressingMode::ZeroPageX => {
                 let address = bus.read_u8(start);
-                (InstructionArgument::ZeroPageX(address), 1)
+                (InstructionArgument::ZeroPageX(address), 1, 1)
             }
 
             AddressingMode::ZeroPageY => {
                 let address = bus.read_u8(start);
-                (InstructionArgument::ZeroPageY(address), 1)
+                (InstructionArgument::ZeroPageY(address), 1, 1)
             }
 
             AddressingMode::Relative => {
                 let address = bus.read_u8(start);
-                (InstructionArgument::Relative(address), 1)
+                (InstructionArgument::Relative(address), 1, 1)
             }
 
             AddressingMode::IndexedIndirect => {
                 let address = bus.read_u8(start);
-                (InstructionArgument::IndexedIndirect(address), 1)
+                (InstructionArgument::IndexedIndirect(address), 1, 1)
             }
 
             AddressingMode::IndirectIndexed => {
                 let address = bus.read_u8(start);
-                (InstructionArgument::IndirectIndexed(address), 1)
+                (InstructionArgument::IndirectIndexed(address), 1, 1)
             }
 
             AddressingMode::Indirect => {
                 let address = bus.read_u16(start);
-                (InstructionArgument::Indirect(address), 2)
+                (InstructionArgument::Indirect(address), 2, 2)
             }
 
             AddressingMode::Absolute => {
                 let address = bus.read_u16(start);
-                (InstructionArgument::Absolute(address), 2)
+                (InstructionArgument::Absolute(address), 2, 2)
             }
 
             AddressingMode::AbsoluteX => {
                 let address = bus.read_u16(start);
-                (InstructionArgument::AbsoluteX(address), 2)
+                (InstructionArgument::AbsoluteX(address), 2, 2)
             }
 
             AddressingMode::AbsoluteY => {
                 let address = bus.read_u16(start);
-                (InstructionArgument::AbsoluteY(address), 2)
+                (InstructionArgument::AbsoluteY(address), 2, 2)
             }
         }
     }

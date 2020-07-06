@@ -50,7 +50,7 @@ fn nestest() {
             );
         }
 
-        println!("Executing instruction: {:X?}", cpu.next_instruction());
+        println!("Executing instruction at {:X}: {:X?}", cpu.pc, cpu.next_instruction());
         cpu.cycle_to_next_instruction().unwrap();
     }
 }
