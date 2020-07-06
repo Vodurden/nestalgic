@@ -730,6 +730,7 @@ checksum = "2b2820aca934aba5ed91c79acc72b6a44048ceacc5d36c035ed4e051f12d887d"
 name = "nestalgic_mos6502"
 version = "0.1.0"
 dependencies = [
+ "nestalgic_rom",
  "thiserror",
 ]
 

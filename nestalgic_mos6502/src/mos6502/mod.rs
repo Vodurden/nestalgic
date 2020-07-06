@@ -4,18 +4,20 @@ mod opcode;
 mod instruction;
 mod error;
 mod register;
+mod status;
 
-use std::convert::TryFrom;
-
-use addressing_mode::AddressingMode;
-use instruction::Instruction;
+use instruction::{Instruction, InstructionArgument};
 use opcode::Opcode;
 use error::Error;
 use register::Register;
 
 pub use bus::Bus;
+pub use bus::RamBus16kb;
+pub use status::{Status, StatusFlag};
 
 pub type Result<A> = std::result::Result<A, Error>;
+
+pub type Address = u16;
 
 const INITIALIZATION_VECTOR_ADDRESS: u16 = 0xFFFC;
 
@@ -46,41 +48,7 @@ pub struct MOS6502<B> {
     /// An 8-bit index register. It is mainly used to hold counters or offsets for accessing memory.
     pub y: u8,
 
-    /// `p` is the processor status register. Each bit in `p` has a different meaning:
-    ///
-    /// ```text
-    /// +---+---+---+---+---+---+---+---+
-    /// | N | V |   | B | D | I | Z | C |
-    /// +---+---+---+---+---+---+---+---+
-    ///   |   |   |   |   |   |   |   |
-    ///   |   |   |   |   |   |   |   \-------- CARRY
-    ///   |   |   |   |   |   |   |
-    ///   |   |   |   |   |   |   \------------ ZERO RESULT
-    ///   |   |   |   |   |   |
-    ///   |   |   |   |   |   \---------------- INTERRUPT DISABLE
-    ///   |   |   |   |   |
-    ///   |   |   |   |   \-------------------- DECIMAL MODE (IGNORED)
-    ///   |   |   |   |
-    ///   |   |   |   \------------------------ BREAK COMMAND
-    ///   |   |   |
-    ///   |   |   \---------------------------- EXPANSION
-    ///   |   |
-    ///   |   \-------------------------------- OVERFLOW
-    ///   |
-    ///   \------------------------------------ NEGATIVE RESULT
-    /// ```
-    ///
-    /// Flag descriptions:
-    ///
-    /// - `C` is the carry flag which is modified by specific arithmetic operations. It's used as the "ninth bit" for many arithmetic operations.
-    /// - `Z` is automatically set during any movement or calculation hen the 8 bits of the resulting operation are 0.
-    /// - `I` is the interrupt disable flag. When set it disables the effect of the interrupt request pin.
-    /// - `D` is the decimal mode flag. This flag is ignored on the NES. On the 6502 is makes add/subtract operations work on the decimal representation of numbers
-    /// - `B` is only set by the processor and is used to determine if an interrupt was caused by the `BRK` command or a real interrupt.
-    /// - ` ` is the expansion bit. It's unused.
-    /// - `V` is set when addition/subtraction overflows.
-    /// - `N` is set after all data movements or arithmetic. If the resultant value is negative this bit will be set to `1`.
-    pub p: u8,
+    pub p: Status,
 
     /// `pc` is the program counter. It points to the current executing address in `memory`.
     ///
@@ -89,12 +57,20 @@ pub struct MOS6502<B> {
 
     /// `sp` is the stack pointer. It points to the top of the 256 byte call stack in memory.
     ///
-    /// Pushing to the stack decrements the stack pointer. Pulling causes it to be incremented.
+    /// The 6502 uses a _descending_ stack which means the stack pointer starts at the end (higher address)
+    /// of the array. This means pushing to the stack decrements the stack pointer and pulling increments it.
     ///
-    /// The stack _must_ be located between `0x0100` and `0x01FF` of the addressable memory.
+    /// The stack _must_ be located between `0x0100` and `0x01FF` of the addressable memory. Which means `sp`
+    /// ranges between `00` to `FF`
     pub sp: u8,
 
-    bus: B,
+    /// The total number of cycles that have elapsed since the CPU started running.
+    pub elapsed_cycles: u64,
+
+    /// The amount of cycles to wait for until performing the next instruction.
+    pub wait_cycles: u32,
+
+    pub bus: B,
 }
 
 impl<B: Bus> MOS6502<B> {
@@ -104,12 +80,15 @@ impl<B: Bus> MOS6502<B> {
             x: 0,
             y: 0,
 
-            p: 0,
+            p: Status(0),
 
             pc: 0,
             sp: 0,
 
-            bus
+            elapsed_cycles: 0,
+            wait_cycles: 0,
+
+            bus,
         };
 
         cpu.reset();
@@ -118,68 +97,116 @@ impl<B: Bus> MOS6502<B> {
 
     /// When called: Simulates the `reset` input of the 6502.
     pub fn reset(&mut self) {
-        // On reset we set the program counter to whatever address is stored at this location
+        // The InterruptDisable bit is set for all interrupts, including `RESET`
+        self.p.set(StatusFlag::InterruptDisable, true);
+
+        // Unused should always be true
+        self.p.set(StatusFlag::Unused, true);
+
+        // The 6502 performs these operations on reset:
+        //
+        // - Initialize the Stack Pointer to 0. Pull the instruction register to 0. (3 cycles, sp = 00)
+        // - Try to push `pch`, which does nothing because the bus is in read-mode. Decrement `sp` (1 cycle, sp = FF)
+        // - Try to push `pcl`, which does nothing again. Decrement `sp` (1 cycle, sp = FE)
+        // - Try to push `p`, which does nothing _again_. Decrement `sp` (1 cycle, sp = FD)
+        // - Read the low byte of INITIALIZATION_VECTOR_ADDRESS into `pcl` (1 cycle)
+        // - Read the high byte of INITIALIZATION_VECTOR_ADDRESS into `pch` (1 cycle)
+        //
+        // (Source: https://www.pagetable.com/?p=410)
+        //
+        // We don't want to go through all this nonsense so let's just set `pc` and `sp` to
+        // it's final value and wait for 7 cycles.
         let target_address = self.bus.read_u16(INITIALIZATION_VECTOR_ADDRESS);
         self.pc = target_address;
+
+        self.sp = 0xFD;
+
+        self.wait_cycles += 7;
     }
 
     /// Execute one clock cycle.
     pub fn cycle(&mut self) -> Result<()> {
-        println!("Cycle (pc: {:x})", self.pc);
-        let instruction = self.read_instruction()?;
-        println!("Running instruction: {:?}", instruction);
+        if self.wait_cycles == 0 {
+            let instruction = self.read_instruction()?;
+            self.execute_instruction(instruction)?;
+        } else {
+            self.wait_cycles -= 1;
+        }
 
-        self.execute_instruction(instruction)?;
-
+        self.elapsed_cycles += 1;
         Ok(())
     }
 
-    /// Cycle the CPU until we read a BRK (opcode 0).
+    /// Cycle the CPU until we hit a BRK (opcode 0).
     ///
     /// This is used for testing
     pub fn cycle_until_brk(&mut self) -> Result<()> {
         loop {
             self.cycle()?;
 
-            let next_instruction = self.peek_instruction();
-            if let Ok(Opcode::BRK) = next_instruction.map(|i| i.opcode) {
+            if self.next_instruction().map(|i| i.opcode)? == Opcode::BRK {
                 return Ok(())
             }
         }
     }
 
+    /// Cycle one instruction plus however many cycles it takes to execute
+    /// that instruction.
+    ///
+    /// This is used for testing.
+    pub fn cycle_to_next_instruction(&mut self) -> Result<()> {
+        loop {
+            self.cycle()?;
+
+            if self.wait_cycles == 0 {
+                return Ok(())
+            }
+        }
+    }
+
+    pub fn next_instruction(&self) -> Result<Instruction> {
+        let (instruction, _) = Instruction::try_from_bus(self.pc, &self.bus)?;
+        Ok(instruction)
+    }
+
     fn read_instruction(&mut self) -> Result<Instruction> {
-        let instruction = self.peek_instruction();
-        self.pc += 1;
-        instruction
+        // We always read an address, even for `implied` and `accumulate` addressing modes
+        // to mimic the cycle behavior of the 6502.
+        let (instruction, bytes_read) = Instruction::try_from_bus(self.pc, &self.bus)?;
+        self.pc += bytes_read;
+
+        // We don't need to wait for the first cycle, we're in it!
+        self.wait_cycles += (bytes_read as u32) - 1;
+        Ok(instruction)
     }
 
-    fn peek_instruction(&self) -> Result<Instruction> {
-        let byte = self.bus.read_u8(self.pc);
-        Instruction::try_from(byte)
-    }
 
-    fn read_next_u8(&mut self) -> u8 {
-        let byte = self.bus.read_u8(self.pc);
-        self.pc += 1;
+    fn read_u8(&mut self, address: Address) -> u8 {
+        let byte = self.bus.read_u8(address);
+        self.wait_cycles += 1;
         byte
     }
 
-    fn read_next_u16(&mut self) -> u16 {
-        let word = self.bus.read_u16(self.pc);
-        self.pc += 2;
-        word
+    fn read_u16(&mut self, address: Address) -> u16 {
+        let byte = self.bus.read_u16(address);
+        self.wait_cycles += 2;
+        byte
+    }
+
+    fn write_u8(&mut self, address: Address, value: u8) {
+        self.bus.write_u8(address, value);
+        self.wait_cycles += 1;
     }
 
     fn execute_instruction(&mut self, instruction: Instruction) -> Result<()> {
         match instruction.opcode {
             // Register Operations
-            Opcode::LDA => self.op_load(Register::A, instruction.addressing_mode),
-            Opcode::LDX => self.op_load(Register::X, instruction.addressing_mode),
-            Opcode::LDY => self.op_load(Register::Y, instruction.addressing_mode),
-            Opcode::STA => self.op_store(Register::A, instruction.addressing_mode),
-            Opcode::STX => self.op_store(Register::X, instruction.addressing_mode),
-            Opcode::STY => self.op_store(Register::Y, instruction.addressing_mode),
+            Opcode::LDA => self.op_load(Register::A, instruction),
+            Opcode::LDX => self.op_load(Register::X, instruction),
+            Opcode::LDY => self.op_load(Register::Y, instruction),
+            Opcode::STA => self.op_store(Register::A, instruction),
+            Opcode::STX => self.op_store(Register::X, instruction),
+            Opcode::STY => self.op_store(Register::Y, instruction),
             Opcode::TAX => self.op_transfer(Register::A, Register::X),
             Opcode::TAY => self.op_transfer(Register::A, Register::Y),
             Opcode::TXA => self.op_transfer(Register::X, Register::A),
@@ -193,6 +220,12 @@ impl<B: Bus> MOS6502<B> {
             Opcode::PLA => self.op_pull_stack(Register::A),
             Opcode::PLP => self.op_pull_stack(Register::P),
 
+            // Jumps & Calls
+            Opcode::JMP => self.op_jump(instruction),
+
+            // System Functions
+            Opcode::BRK => Ok(()),
+            // Opcode::BRK => self.op_brk,
 
             _ => Ok(())
         }
@@ -203,7 +236,7 @@ impl<B: Bus> MOS6502<B> {
             Register::A => self.a,
             Register::X => self.x,
             Register::Y => self.y,
-            Register::P => self.p,
+            Register::P => self.p.0,
             Register::SP => self.sp,
         }
     }
@@ -214,105 +247,75 @@ impl<B: Bus> MOS6502<B> {
             Register::A => &mut self.a,
             Register::X => &mut self.x,
             Register::Y => &mut self.y,
-            Register::P => &mut self.p,
+            Register::P => &mut self.p.0,
             Register::SP => &mut self.sp,
         };
-        // TODO: Update status flags
+
         *register_ref = value;
+
+        self.p.set(StatusFlag::Zero, value == 0);
+        self.p.set(StatusFlag::Negative, value & 0b1000_0000 > 0);
     }
 
-    /// Read the address at `self.pc` based on the given addressing mode.
-    fn read_instruction_target_address(&mut self, addressing_mode: AddressingMode) -> Result<u16> {
-        match addressing_mode {
-            AddressingMode::ZeroPage => {
-                let address = self.read_next_u8();
-                Ok(address as u16)
-            },
+    fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<u16> {
+        match instruction.argument {
+            InstructionArgument::ZeroPage(address) => Ok(address as u16),
+            InstructionArgument::ZeroPageX(address) => Ok(address.wrapping_add(self.x) as u16),
+            InstructionArgument::ZeroPageY(address) => Ok(address.wrapping_add(self.y) as u16),
 
-            AddressingMode::ZeroPageX => {
-                let address = self.read_next_u8();
-                let address = address.wrapping_add(self.x);
-                Ok(address as u16)
-            },
+            InstructionArgument::Relative(offset) => Ok(self.pc.wrapping_add(offset as u16)),
 
-            AddressingMode::ZeroPageY => {
-                let address = self.read_next_u8();
-                let address = address.wrapping_add(self.y);
-                Ok(address as u16)
-            },
-
-            AddressingMode::Absolute => {
-                let address = self.read_next_u16();
-                Ok(address)
-            },
-
-            AddressingMode::AbsoluteX => {
-                let address = self.read_next_u16();
-                let address = address.wrapping_add(self.x as u16);
-                Ok(address)
-            },
-
-            AddressingMode::AbsoluteY => {
-                let address = self.read_next_u16();
-                let address = address.wrapping_add(self.y as u16);
-                Ok(address)
-            },
-
-            AddressingMode::Relative => {
-                // TODO: Check that we are actually applying the right offsets here
-                let address = self.read_next_u8() as i8;
-                let address = self.pc.wrapping_add(address as u16);
-                Ok(address)
-            },
-
-            AddressingMode::Indirect => {
-                let address_address = self.read_next_u16();
-                let address = self.bus.read_u16(address_address);
-                Ok(address)
-            },
-
-            AddressingMode::IndexedIndirect => {
-                let indexed_address = self.read_next_u8();
+            InstructionArgument::IndexedIndirect(indexed_address) => {
                 let indexed_address = indexed_address.wrapping_add(self.x);
-                let address = self.bus.read_u16(indexed_address as u16);
+                let address = self.read_u16(indexed_address as u16);
                 Ok(address)
             },
 
-            AddressingMode::IndirectIndexed => {
-                let indexed_address = self.read_next_u8();
-                let address = self.bus.read_u16(indexed_address as u16);
+            InstructionArgument::IndirectIndexed(indexed_address) => {
+                let address = self.read_u16(indexed_address as u16);
                 let address = address.wrapping_add(self.y as u16);
                 // TODO: Add Carry Bit
                 Ok(address)
-            }
+            },
 
-            invalid_mode => Err(Error::InvalidAddressRead(invalid_mode))
+            InstructionArgument::Indirect(address_address) => Ok(self.read_u16(address_address)),
+            InstructionArgument::Absolute(address) => Ok(address),
+            InstructionArgument::AbsoluteX(address) => Ok(address.wrapping_add(self.x as u16)),
+            InstructionArgument::AbsoluteY(address) => Ok(address.wrapping_add(self.y as u16)),
+
+            _ => Err(Error::InvalidReadAddress(instruction)),
         }
     }
 
-    fn read_instruction_argument(&mut self, addressing_mode: AddressingMode) -> Result<u8> {
-        match addressing_mode {
-            AddressingMode::Accumulator => Ok(self.a),
-            AddressingMode::Immediate => Ok(self.read_next_u8()),
+    /// Attempt to read the u8 value targeted by this instruction.
+    ///
+    /// If the `InstructionArgument` of the `Instruction` is `Implied` this function will fail.
+    fn try_read_instruction_value(&mut self, instruction: Instruction) -> Result<u8> {
+        // `Implied` instructions don't have an argument so this method should never be called
+        // with an implied instruction.
+        match instruction.argument {
+            InstructionArgument::Implied => Err(Error::ImpliedReadValue(instruction)),
+            InstructionArgument::Accumulator => Ok(self.a),
+            InstructionArgument::Immediate(value) => Ok(value),
 
-            memory_addressing_mode => {
-                let address = self.read_instruction_target_address(memory_addressing_mode)?;
-                let value = self.bus.read_u8(address);
+            _ => {
+                let address = self.try_read_instruction_target_address(instruction)?;
+                let value = self.read_u8(address);
                 Ok(value)
             }
         }
     }
 
-    fn op_load(&mut self, register: Register, addressing_mode: AddressingMode) -> Result<()> {
-        let value = self.read_instruction_argument(addressing_mode)?;
+    fn op_load(&mut self, register: Register, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
         self.write_register(register, value);
         Ok(())
     }
 
-    fn op_store(&mut self, register: Register, addressing_mode: AddressingMode) -> Result<()> {
+    fn op_store(&mut self, register: Register, instruction: Instruction) -> Result<()> {
         let value = self.read_register(register);
-        let address = self.read_instruction_target_address(addressing_mode)?;
-        self.bus.write_u8(address, value);
+        let address = self.try_read_instruction_target_address(instruction)?;
+        self.write_u8(address, value);
         Ok(())
     }
 
@@ -334,6 +337,12 @@ impl<B: Bus> MOS6502<B> {
         let value = self.bus.read_u8(self.sp as u16);
         self.write_register(target, value);
         self.sp += 1;
+        Ok(())
+    }
+
+    fn op_jump(&mut self, instruction: Instruction) -> Result<()> {
+        let address = self.try_read_instruction_target_address(instruction)?;
+        self.pc = address;
         Ok(())
     }
 

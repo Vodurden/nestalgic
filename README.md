@@ -14,3 +14,7 @@ Nestalgic supports Linux and Windows:
 - To build Windows binaries run `nix-build -f release.nix nestalgic-windows`
 
 The build outputs to `./result/bin/`.
+
+# References
+
+- nestest test rom: https://www.qmtpro.com/~nes/misc/

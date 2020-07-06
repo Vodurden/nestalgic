@@ -26,9 +26,10 @@ pub struct NESROM {
 
 impl NESROM {
     pub fn from_bytes(bytes: Vec<u8>) -> Result<NESROM> {
-        let header = Header::from_bytes(&bytes)?;
-
         let mut bytes = bytes.into_iter();
+
+        let header_bytes: Vec<u8> = bytes.by_ref().take(16).collect();
+        let header = Header::from_bytes(&header_bytes)?;
 
         let trainer = if header.has_trainer {
             let trainer: Vec<u8> = bytes.by_ref().take(512).collect();

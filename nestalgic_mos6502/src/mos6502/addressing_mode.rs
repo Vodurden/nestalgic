@@ -1,5 +1,8 @@
 use std::fmt;
 
+use super::Address;
+use super::bus::Bus;
+
 /// `AddressingMode` is combined with `Opcode` to decide _where_ the arguments for an opcode should be sourced from.
 ///
 /// If the `AddressingMode` is `Accumulator`
@@ -50,19 +53,70 @@ pub enum AddressingMode {
     /// Example: `LDA $00,Y`
     ZeroPageY,
 
+    Relative,  // (s8)
+    Indirect,  // u16 -> u16
+
+    /// `IndexedIndirect` means we want to load a value in the Zero Page (first 256 bytes of memory) referenced by
+    /// anywhere in memory using an `X` offset
+    ///
+    /// For example, consider the following memory layout:
+    ///
+    /// ```text
+    /// 0x0000: 0xAA
+    /// ...
+    /// 0x8000:
+    /// ```
+    ///
+    /// If I execute LDA
+    ///
+    /// TODO: Finish this comment
+    IndexedIndirect,
+    IndirectIndexed, // (u16, y) -> u16. Should this be IndirectIndexedY?
+
     // 16-bit memory return value
     Absolute,  // u16 -> u8
     AbsoluteX, // (u16, x) -> u8
     AbsoluteY, // (u16, y) -> u8
-
-    Relative,  // (s8)
-    Indirect,  // u16 -> u16
-    IndexedIndirect, // (u16, x) -> u16. Should this be IndexedIndirectX?
-    IndirectIndexed, // (u16, y) -> u16. Should this be IndirectIndexedY?
 }
 
 impl fmt::Display for AddressingMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl AddressingMode {
+    /// Read an address from `bus` starting at `start` using the current addressing mode.
+    ///
+    /// Returns the address and the number of bytes read from the bus which is always `1` or `2`.
+    pub fn read_address(&self, start: Address, bus: &impl Bus) -> (Address, u16) {
+        match self {
+            // 8-bit addressing modes
+            AddressingMode::Implied => self.read_address_u8(start, bus),
+            AddressingMode::Accumulator => self.read_address_u8(start, bus),
+            AddressingMode::Immediate => self.read_address_u8(start, bus),
+            AddressingMode::ZeroPage => self.read_address_u8(start, bus),
+            AddressingMode::ZeroPageX => self.read_address_u8(start, bus),
+            AddressingMode::ZeroPageY => self.read_address_u8(start, bus),
+            AddressingMode::Relative => self.read_address_u8(start, bus),
+            AddressingMode::IndexedIndirect => self.read_address_u8(start, bus),
+            AddressingMode::IndirectIndexed => self.read_address_u8(start, bus),
+
+            // 16-bit addressing modes
+            AddressingMode::Absolute => self.read_address_u16(start, bus),
+            AddressingMode::AbsoluteX => self.read_address_u16(start, bus),
+            AddressingMode::AbsoluteY => self.read_address_u16(start, bus),
+            AddressingMode::Indirect => self.read_address_u16(start, bus),
+        }
+    }
+
+    fn read_address_u8(&self, start: Address, bus: &impl Bus) -> (Address, u16) {
+        let address = bus.read_u8(start);
+        (address as u16, 1)
+    }
+
+    fn read_address_u16(&self, start: Address, bus: &impl Bus) -> (Address, u16) {
+        let address = bus.read_u16(start);
+        (address, 2)
     }
 }

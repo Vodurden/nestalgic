@@ -28,7 +28,9 @@ pub struct RamBus16kb {
 }
 
 impl RamBus16kb {
-    pub const SIZE: usize = std::u16::MAX as usize;
+    /// If we have a 16-bit addressing scheme then we can address
+    /// _65536_ bytes of memory in total.
+    pub const SIZE: usize = 65536;
 
     pub fn new() -> RamBus16kb {
         RamBus16kb {
@@ -53,9 +55,13 @@ impl RamBus16kb {
     }
 
     /// Writes memory into RAM starting from address `0x0000`
-    pub fn with_memory(mut self, bytes: Vec<u8>) -> RamBus16kb {
-        let program_start = 0;
-        let program_end = bytes.len();
+    pub fn with_memory(self, bytes: Vec<u8>) -> RamBus16kb {
+        self.with_memory_at(0, bytes)
+    }
+
+    pub fn with_memory_at(mut self, start: usize, bytes: Vec<u8>) -> RamBus16kb {
+        let program_start = start as usize;
+        let program_end = start + bytes.len() as usize;
         self.memory[program_start..program_end].copy_from_slice(&bytes[..]);
         self
     }
