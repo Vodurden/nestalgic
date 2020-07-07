@@ -30,14 +30,15 @@
 /// - `Z` is automatically set during any movement or calculation hen the 8 bits of the resulting operation are 0.
 /// - `I` is the interrupt disable flag. When set it disables the effect of the interrupt request pin.
 /// - `D` is the decimal mode flag. This flag is ignored on the NES. On the 6502 is makes add/subtract operations work on the decimal representation of numbers
-/// - `B` is only set by the processor and is used to determine if an interrupt was caused by the `BRK` command or a real interrupt.
+/// - `B` is only set by the processor and is used to determine if an interrupt was caused by the `BRK` command or a real interrupt. It's always 0 in `P` but exists when `P` is pushed to the stack using `PHP`
 /// - ` ` is the expansion bit. It's unused and always set to 1.
 /// - `V` is set when addition/subtraction overflows.
 /// - `N` is set after all data movements or arithmetic. If the resultant value is negative this bit will be set to `1`.
 ///
 /// Gotchas:
 ///
-/// - `B` is _always_ set unless except when `p` is being pushed on the stack when jumping to a hardware interrupt routine
+/// - `B` doesn't exist in `P`. It is _only_ set when `P` is pushed to the stack from `BRK` or `PHP`.
+/// - `B` is ignored when reading from the stack into `P`
 /// - ` ` (unused) is _always_ set to 1.
 
 #[derive(Eq, PartialEq, Debug)]
@@ -57,6 +58,11 @@ impl Status {
         } else {
             self.0 &= !(1 << bit);
         }
+    }
+
+    pub fn with(&mut self, flag: StatusFlag, value: bool) -> &mut Self {
+        self.set(flag, value);
+        self
     }
 }
 

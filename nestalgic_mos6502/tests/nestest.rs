@@ -16,7 +16,8 @@ fn nestest() {
     // We still need the flag to be set by the instructions but the results should remain in binary mode.
     let mut cpu = MOS6502::new(bus);
 
-    // nestest expects the program counter to be `0xC000` for automated testing
+    // nestest expects the program counter to be `0xC000` for automated testing. This is the usual
+    // start location of NES cartridges.
     cpu.pc = 0xC000;
 
     // The CPU is initialized with 7 cycles to wait from the initial boot routine. Let's clear those so the
@@ -50,7 +51,7 @@ fn nestest() {
             );
         }
 
-        println!("Executing instruction at {:X}: {:X?}", cpu.pc, cpu.next_instruction());
+        println!("{:X} (P: {:08b}, A: {:X}): {:X?}", cpu.pc, cpu.p.0, cpu.a, cpu.next_instruction());
         cpu.cycle_to_next_instruction().unwrap();
     }
 }

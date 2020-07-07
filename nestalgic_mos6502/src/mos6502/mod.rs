@@ -226,10 +226,22 @@ impl<B: Bus> MOS6502<B> {
             Opcode::PLP => self.op_pull_stack(Register::P),
 
             // Logical Operations
+            Opcode::AND => self.op_logical(instruction, |a, b| a & b),
+            Opcode::EOR => self.op_logical(instruction, |a, b| a ^ b),
+            Opcode::ORA => self.op_logical(instruction, |a, b| a | b),
+            Opcode::BIT => self.op_bit(instruction),
+
+            // Arithmetic
+            Opcode::ADC => self.op_add(instruction),
+            Opcode::SBC => self.op_sub(instruction),
+            Opcode::CMP => self.op_compare(Register::A, instruction),
+            Opcode::CPX => self.op_compare(Register::X, instruction),
+            Opcode::CPY => self.op_compare(Register::Y, instruction),
 
             // Jumps & Calls
             Opcode::JMP => self.op_jump(instruction),
             Opcode::JSR => self.op_jump_subroutine(instruction),
+            Opcode::RTS => self.op_return(),
 
             // Branches
             Opcode::BCS => self.op_branch_if(instruction, self.p.get(StatusFlag::Carry)),
@@ -279,8 +291,19 @@ impl<B: Bus> MOS6502<B> {
 
         *register_ref = value;
 
-        self.p.set(StatusFlag::Zero, value == 0);
-        self.p.set(StatusFlag::Negative, value & 0b1000_0000 > 0);
+        // If we're writing to `P` we don't want it to modify itself from it's own value
+        if register != Register::P {
+            self.p.set(StatusFlag::Zero, value == 0);
+            self.p.set(StatusFlag::Negative, value & 0b1000_0000 > 0);
+        }
+
+        // `P` doesn't actually have any storage for `Break` and `Unused`. This means
+        // if we're writing to `P` `Break` should always be `0` and `Unused` should
+        // always be `1`
+        if register == Register::P {
+            self.p.set(StatusFlag::Break, false);
+            self.p.set(StatusFlag::Unused, true);
+        }
     }
 
     fn push_stack_u8(&mut self, value: u8) {
@@ -289,8 +312,11 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn pull_stack_u8(&mut self) -> u8 {
-        let value = self.read_u8(self.sp as u16);
+        // Incrementing the stack pointer costs ac ycle on the 6502
         self.sp += 1;
+        self.wait_cycles += 1;
+
+        let value = self.read_u8(self.sp as u16);
         value
     }
 
@@ -300,8 +326,11 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn pull_stack_u16(&mut self) -> u16 {
-        let value = self.read_u16(self.sp as u16);
+        // Incrementing the stack pointer costs a cycle on the 6502
         self.sp += 2;
+        self.wait_cycles += 1;
+
+        let value = self.read_u16(self.sp as u16);
         value
     }
 
@@ -380,6 +409,21 @@ impl<B: Bus> MOS6502<B> {
         }
     }
 
+    /// Returns true if `a + b` or `a - b` would result in a signed
+    /// overflow.
+    ///
+    /// Overflow is true if there's a _signed_ overflow, i.e. if we have:
+    /// `Positive + Positive = Negative` or `Negative + Negative = Positive`
+    ///
+    /// This means if the sign of the result matches either the sign of `a` or the sign of `value`
+    /// then we don't have an overflow!
+    fn detect_overflow(a: u8, b: u8, result: u8) -> bool {
+        let a_sign = a & 0b1000_0000;
+        let b_sign = b & 0b1000_0000;
+        let result_sign = result & 0b1000_0000;
+        (result_sign != a_sign) && (result_sign != b_sign)
+    }
+
     fn op_load(&mut self, register: Register, instruction: Instruction) -> Result<()> {
         let value = self.try_read_instruction_value(instruction)?;
         self.write_register(register, value);
@@ -401,14 +445,26 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn op_push_stack(&mut self, source: Register) -> Result<()> {
-        let value = self.read_register(source);
+        let mut value = self.read_register(source);
+        // If we push `P` it sets `Break` to `true` for the value that is pushed to the stack
+        if source == Register::P {
+            value = Status(value)
+                .with(StatusFlag::Break, true)
+                .0;
+        }
+
+        println!("Push stack value: {:08b}", value);
+
         self.push_stack_u8(value);
+
         Ok(())
     }
 
     fn op_pull_stack(&mut self, target: Register) -> Result<()> {
         let value = self.pull_stack_u8();
+        println!("Pull stack value {:08b} into {:?}", value, target);
         self.write_register(target, value);
+        println!("P: {:08b}", self.p.0);
         Ok(())
     }
 
@@ -431,6 +487,15 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
+    fn op_return(&mut self) -> Result<()> {
+        let address = self.pull_stack_u16();
+
+        // Calculating the offset address costs 1 cycle on the 6502
+        self.pc = address + 1;
+        self.wait_cycles += 1;
+        Ok(())
+    }
+
     fn op_branch_if(&mut self, instruction: Instruction, condition: bool) -> Result<()> {
         let address = self.try_read_instruction_target_address(instruction)?;
         if condition {
@@ -440,6 +505,67 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
+    fn op_logical(&mut self, instruction: Instruction, f: fn(u8, u8) -> u8) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+        let result = f(self.a, value);
+        self.write_register(Register::A, result);
+        Ok(())
+    }
+
+    fn op_bit(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+        let result = value & self.a;
+
+        self.p.set(StatusFlag::Zero, result == 0);
+        self.p.set(StatusFlag::Overflow, value & 0b0100_0000 > 0);
+        self.p.set(StatusFlag::Negative, value & 0b1000_0000 > 0);
+        Ok(())
+    }
+
+    fn op_add(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+        let carry: u8 = self.p.get(StatusFlag::Carry).into();
+
+        let (sum, overflow_1) = self.a.overflowing_add(value);
+        let (sum, overflow_2) = sum.overflowing_add(carry);
+        let carry = overflow_1 || overflow_2;
+
+        self.p.set(StatusFlag::Carry, carry);
+        self.p.set(StatusFlag::Overflow, Self::detect_overflow(self.a, value, sum));
+
+        self.write_register(Register::A, sum);
+
+        Ok(())
+    }
+
+    fn op_sub(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+        let carry: u8 = self.p.get(StatusFlag::Carry).into();
+
+        let (sum, overflow_1) = self.a.overflowing_sub(value);
+        let (sum, overflow_2) = sum.overflowing_sub(1 - carry);
+        let carry = overflow_1 || overflow_2;
+
+        self.p.set(StatusFlag::Carry, !carry);
+        self.p.set(StatusFlag::Overflow, Self::detect_overflow(self.a, value, sum));
+
+        self.write_register(Register::A, sum);
+
+        Ok(())
+    }
+
+    fn op_compare(&mut self, register: Register, instruction: Instruction) -> Result<()> {
+        let register = self.read_register(register);
+        let value = self.try_read_instruction_value(instruction)?;
+        let result = register.wrapping_sub(value);
+
+        // Compare can be thought of a subtraction that doesn't affect the register. I.e. these
+        // flags are the result of (register - value).
+        self.p.set(StatusFlag::Carry, register >= value);
+        self.p.set(StatusFlag::Zero, result == 0);
+        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
