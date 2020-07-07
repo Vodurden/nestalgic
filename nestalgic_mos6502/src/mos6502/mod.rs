@@ -225,9 +225,21 @@ impl<B: Bus> MOS6502<B> {
             Opcode::PLA => self.op_pull_stack(Register::A),
             Opcode::PLP => self.op_pull_stack(Register::P),
 
+            // Logical Operations
+
             // Jumps & Calls
             Opcode::JMP => self.op_jump(instruction),
             Opcode::JSR => self.op_jump_subroutine(instruction),
+
+            // Branches
+            Opcode::BCS => self.op_branch_if(instruction, self.p.get(StatusFlag::Carry)),
+            Opcode::BCC => self.op_branch_if(instruction, !self.p.get(StatusFlag::Carry)),
+            Opcode::BEQ => self.op_branch_if(instruction, self.p.get(StatusFlag::Zero)),
+            Opcode::BNE => self.op_branch_if(instruction, !self.p.get(StatusFlag::Zero)),
+            Opcode::BMI => self.op_branch_if(instruction, self.p.get(StatusFlag::Negative)),
+            Opcode::BPL => self.op_branch_if(instruction, !self.p.get(StatusFlag::Negative)),
+            Opcode::BVS => self.op_branch_if(instruction, self.p.get(StatusFlag::Overflow)),
+            Opcode::BVC => self.op_branch_if(instruction, !self.p.get(StatusFlag::Overflow)),
 
             // Status Flag Functions
             Opcode::CLC => Ok(self.p.set(StatusFlag::Carry, false)),
@@ -299,7 +311,11 @@ impl<B: Bus> MOS6502<B> {
             InstructionArgument::ZeroPageX(address) => Ok(address.wrapping_add(self.x) as u16),
             InstructionArgument::ZeroPageY(address) => Ok(address.wrapping_add(self.y) as u16),
 
-            InstructionArgument::Relative(offset) => Ok(self.pc.wrapping_add(offset as u16)),
+            InstructionArgument::Relative(offset) => {
+                // TODO: +2 cycles if page boundary crossed
+
+                Ok(self.pc.wrapping_add(offset as u16))
+            }
 
             InstructionArgument::IndexedIndirect(indexed_address) => {
                 let indexed_address = indexed_address.wrapping_add(self.x);
@@ -311,13 +327,35 @@ impl<B: Bus> MOS6502<B> {
                 let address = self.read_u16(indexed_address as u16);
                 let address = address.wrapping_add(self.y as u16);
                 // TODO: Add Carry Bit
+
+                // +1 cycle if page boundary is crossed
+                if (indexed_address as u16 & 0xFF) + (self.y as u16) > 0xFF {
+                    self.wait_cycles += 1;
+                }
+
                 Ok(address)
             },
 
             InstructionArgument::Indirect(address_address) => Ok(self.read_u16(address_address)),
             InstructionArgument::Absolute(address) => Ok(address),
-            InstructionArgument::AbsoluteX(address) => Ok(address.wrapping_add(self.x as u16)),
-            InstructionArgument::AbsoluteY(address) => Ok(address.wrapping_add(self.y as u16)),
+
+            InstructionArgument::AbsoluteX(address) => {
+                // +1 cycle if page boundary crossed
+                if (address & 0xFF) + (self.y as u16) > 0xFF {
+                    self.wait_cycles += 1;
+                }
+
+                Ok(address.wrapping_add(self.x as u16))
+            },
+
+            InstructionArgument::AbsoluteY(address) => {
+                // +1 cycle if page boundary crossed
+                if (address & 0xFF) + (self.y as u16) > 0xFF {
+                    self.wait_cycles += 1;
+                }
+
+                Ok(address.wrapping_add(self.y as u16))
+            },
 
             _ => Err(Error::InvalidReadAddress(instruction)),
         }
@@ -390,6 +428,15 @@ impl<B: Bus> MOS6502<B> {
         self.push_stack_u16(return_address);
 
         self.pc = address;
+        Ok(())
+    }
+
+    fn op_branch_if(&mut self, instruction: Instruction, condition: bool) -> Result<()> {
+        let address = self.try_read_instruction_target_address(instruction)?;
+        if condition {
+            self.pc = address;
+            self.wait_cycles += 1;
+        }
         Ok(())
     }
 

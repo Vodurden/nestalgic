@@ -105,13 +105,28 @@ pub enum Opcode {
     // ====================================== Branches =====================================
     // =====================================================================================
 
-    BCC,
+    /// Branch Carry Set: Set `PC` to `address` if `Carry` flag is `true`.
     BCS,
+
+    /// Branch Carry Clear: Set `PC` to `address` if the `Carry` flag is `false`.
+    BCC,
+
+    /// Branch Equal: Set `PC` to `address` if equal (i.e. the `Zero` flag is `true`)
     BEQ,
-    BMI,
+
+    /// Branch Not Equal: Set `PC` to `address` if not equal (i.e. the `Zero` flag is `false`)
     BNE,
+
+    /// Branch If Minus: Set `PC` to `address` if minus (i.e. the `Negative` flag is `true`)
+    BMI,
+
+    /// Branch If Positive: Set `PC` to `address` if positive (i.e. the `Negative` flag is `false`)
     BPL,
+
+    /// Branch If Overflow Clear: Set `PC` to `address` if `Overflow` is `false`.
     BVC,
+
+    /// Branch If Overflow Set: Set `PC` to `address` if `Overflow` is `true`
     BVS,
 
 
@@ -119,18 +134,34 @@ pub enum Opcode {
     // ================================ Status Flag Changes ================================
     // =====================================================================================
 
+    /// Clear Carry Flag: Set `Carry` in `P` to `false`
     CLC,
+
+    /// Clear Decimal Mode: Set `DecimalMode` in `P` to `false`
     CLD,
+
+    /// Clear Interrupt Disable: Set `InterruptDisable` in `P` to `false`
     CLI,
+
+    /// Clear Overflow Flag: Set `Overflow` in `P` to `false`
     CLV,
+
+    /// Set Carry Flag: Set `Carry` in `P` to `true`
     SEC,
+
+    /// Set Decimal Mode: Set `DecimalMode` in `P` to `true`
     SED,
+
+    /// Set Interrupt Disable: Set `InterruptDisable` in `P` to `true`
     SEI,
 
     // =====================================================================================
     // ================================== System Functions =================================
     // =====================================================================================
     BRK,
+
+    /// No Operation: Do nothing, skip to next instruction
     NOP,
+
     RTI,
 }

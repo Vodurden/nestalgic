@@ -30,13 +30,10 @@ pub enum AddressingMode {
     /// For example, consider the following memory layout:
     ///
     /// ```text
-    /// 0x0000: 0xEF
     /// 0x0001: 0xBE
-    /// ...
-    /// 0xBEEF: 0xAA
     /// ```
     ///
-    /// If I execute `LDA $00` then `A` will contain `0xAA` since address `0x000` and `0x0001` reference address `0xBEEF`
+    /// If I execute `LDA $01` then `A` will contain `0xBE`.
     ZeroPage,
 
     /// `ZeroPageX` is the same as `ZeroPage` except `X` is added to the zero page address before resolving the value.
@@ -62,16 +59,19 @@ pub enum AddressingMode {
     /// For example, consider the following memory layout:
     ///
     /// ```text
-    /// 0x0000: 0xAA
+    /// 0x0000: 0xEF
+    /// 0x0001: 0xBE
     /// ...
-    /// 0x8000:
+    /// 0xBEEF: 0xAA
     /// ```
     ///
     /// If I execute LDA
     ///
     /// TODO: Finish this comment
     IndexedIndirect,
-    IndirectIndexed, // (u16, y) -> u16. Should this be IndirectIndexedY?
+
+    /// This instruction takes `5` cycles (+1 if a page is crossed when adding `y` to the base address)
+    IndirectIndexed,
 
     // 16-bit memory return value
     Absolute,  // u16 -> u8
