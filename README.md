@@ -17,4 +17,9 @@ The build outputs to `./result/bin/`.
 
 # References
 
+## CPU (6502)
+
+- Instruction Reference: http://www.obelisk.me.uk/6502/reference.html#CMP
+- Address Mode Timing Reference: http://atarihq.com/danb/files/64doc.txt
+- How the overflow flag works: http://www.6502.org/tutorials/vflag.html
 - nestest test rom: https://www.qmtpro.com/~nes/misc/

@@ -32,7 +32,7 @@
 /// - `D` is the decimal mode flag. This flag is ignored on the NES. On the 6502 is makes add/subtract operations work on the decimal representation of numbers
 /// - `B` is only set by the processor and is used to determine if an interrupt was caused by the `BRK` command or a real interrupt. It's always 0 in `P` but exists when `P` is pushed to the stack using `PHP`
 /// - ` ` is the expansion bit. It's unused and always set to 1.
-/// - `V` is set when addition/subtraction overflows.
+/// - `V` is set when _signed_ addition/subtraction overflows.
 /// - `N` is set after all data movements or arithmetic. If the resultant value is negative this bit will be set to `1`.
 ///
 /// Gotchas:

@@ -101,11 +101,23 @@ pub enum Opcode {
     // =====================================================================================
     // =============================== Increments & Decrements =============================
     // =====================================================================================
+
+    /// Increment Memory. Add 1 to the target memory location
     INC,
+
+    /// Increment `X`. Add 1 to `X`
     INX,
+
+    /// Increment `Y`. Add 1 to `Y`
     INY,
+
+    /// Decrement Memory. Subtract 1 to the target memory location
     DEC,
+
+    /// Decrement `X`. Subtract 1 from `X`
     DEX,
+
+    /// Decrement `Y`. Subtract 1 from `Y`
     DEY,
 
     // =====================================================================================

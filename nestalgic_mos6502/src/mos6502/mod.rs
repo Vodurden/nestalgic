@@ -238,6 +238,14 @@ impl<B: Bus> MOS6502<B> {
             Opcode::CPX => self.op_compare(Register::X, instruction),
             Opcode::CPY => self.op_compare(Register::Y, instruction),
 
+            // Increments & Decrements
+            Opcode::INC => todo!(),
+            Opcode::INX => Ok(self.modify_register(Register::X, |x| x + 1)),
+            Opcode::INY => Ok(self.modify_register(Register::Y, |y| y + 1)),
+            Opcode::DEC => todo!(),
+            Opcode::DEX => todo!(),
+            Opcode::DEY => todo!(),
+
             // Jumps & Calls
             Opcode::JMP => self.op_jump(instruction),
             Opcode::JSR => self.op_jump_subroutine(instruction),
@@ -304,6 +312,12 @@ impl<B: Bus> MOS6502<B> {
             self.p.set(StatusFlag::Break, false);
             self.p.set(StatusFlag::Unused, true);
         }
+    }
+
+    fn modify_register(&mut self, register: Register, f: fn(u8) -> u8) {
+        let value = self.read_register(register);
+        let result = f(value);
+        self.write_register(register, result);
     }
 
     fn push_stack_u8(&mut self, value: u8) {
@@ -409,21 +423,6 @@ impl<B: Bus> MOS6502<B> {
         }
     }
 
-    /// Returns true if `a + b` or `a - b` would result in a signed
-    /// overflow.
-    ///
-    /// Overflow is true if there's a _signed_ overflow, i.e. if we have:
-    /// `Positive + Positive = Negative` or `Negative + Negative = Positive`
-    ///
-    /// This means if the sign of the result matches either the sign of `a` or the sign of `value`
-    /// then we don't have an overflow!
-    fn detect_overflow(a: u8, b: u8, result: u8) -> bool {
-        let a_sign = a & 0b1000_0000;
-        let b_sign = b & 0b1000_0000;
-        let result_sign = result & 0b1000_0000;
-        (result_sign != a_sign) && (result_sign != b_sign)
-    }
-
     fn op_load(&mut self, register: Register, instruction: Instruction) -> Result<()> {
         let value = self.try_read_instruction_value(instruction)?;
         self.write_register(register, value);
@@ -523,33 +522,59 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn op_add(&mut self, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
+        let lhs = self.a;
+        let rhs = self.try_read_instruction_value(instruction)?;
         let carry: u8 = self.p.get(StatusFlag::Carry).into();
 
-        let (sum, overflow_1) = self.a.overflowing_add(value);
-        let (sum, overflow_2) = sum.overflowing_add(carry);
-        let carry = overflow_1 || overflow_2;
+        let (result, result_overflow) = self.a.overflowing_add(rhs);
+        let (result, carry_overflow) = result.overflowing_add(carry);
 
-        self.p.set(StatusFlag::Carry, carry);
-        self.p.set(StatusFlag::Overflow, Self::detect_overflow(self.a, value, sum));
+        let result_carry = result_overflow || carry_overflow;
+        self.p.set(StatusFlag::Carry, result_carry);
 
-        self.write_register(Register::A, sum);
+        // When adding overflow is true if there's a _signed_ overflow, i.e. if we have:
+        // `Positive + Positive = Negative` or `Negative + Negative = Positive`
+        //
+        // This means if:
+        //
+        // - `lhs` and `rhs` have the same sign
+        // - _and_ `lhs` does not have the same sign as `result_sign`
+        //
+        // Then we have an overflow!
+        let lhs_sign = lhs & 0b1000_0000;
+        let rhs_sign = rhs & 0b1000_0000;
+        let result_sign = result & 0b1000_0000;
+        let overflow = (lhs_sign == rhs_sign) && (lhs_sign != result_sign);
+        self.p.set(StatusFlag::Overflow, overflow);
+
+        self.write_register(Register::A, result);
 
         Ok(())
     }
 
     fn op_sub(&mut self, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
+        let lhs = self.a;
+        let rhs = self.try_read_instruction_value(instruction)?;
         let carry: u8 = self.p.get(StatusFlag::Carry).into();
 
-        let (sum, overflow_1) = self.a.overflowing_sub(value);
-        let (sum, overflow_2) = sum.overflowing_sub(1 - carry);
-        let carry = overflow_1 || overflow_2;
+        let (result, result_overflow) = self.a.overflowing_sub(rhs);
+        let (result, carry_overflow) = result.overflowing_sub(1 - carry);
 
-        self.p.set(StatusFlag::Carry, !carry);
-        self.p.set(StatusFlag::Overflow, Self::detect_overflow(self.a, value, sum));
+        let result_carry = result_overflow || carry_overflow;
+        self.p.set(StatusFlag::Carry, !result_carry);
 
-        self.write_register(Register::A, sum);
+        // For subtraction we know an overflow has occured if:
+        //
+        // - the signs of `lhs` and `rhs` differ
+        // - _and_ the sign of `lhs` and `result` differ
+        //
+        let lhs_sign = lhs & 0b1000_0000;
+        let rhs_sign = rhs & 0b1000_0000;
+        let result_sign = result & 0b1000_0000;
+        let overflow = (lhs_sign != rhs_sign) && (lhs_sign != result_sign);
+        self.p.set(StatusFlag::Overflow, overflow);
+
+        self.write_register(Register::A, result);
 
         Ok(())
     }
