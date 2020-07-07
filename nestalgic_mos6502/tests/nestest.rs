@@ -51,7 +51,7 @@ fn nestest() {
             );
         }
 
-        println!("{:X} (P: {:08b}, A: {:X}): {:X?}", cpu.pc, cpu.p.0, cpu.a, cpu.next_instruction());
+        println!("{:X} (P:{:08b}, SP:{:X}, A:{:X}): {:X?}", cpu.pc, cpu.p.0, cpu.sp, cpu.a, cpu.next_instruction());
         cpu.cycle_to_next_instruction().unwrap();
     }
 }

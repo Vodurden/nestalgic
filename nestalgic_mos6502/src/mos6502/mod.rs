@@ -23,6 +23,8 @@ const INITIALIZATION_VECTOR_ADDRESS: u16 = 0xFFFC;
 
 const NMI_VECTOR_ADDRESS: u16 = 0xFFFA;
 
+const STACK_START_ADDRESS: u16 = 0x0100;
+
 /// `MOS6502` emulates the functionality of the MOS Technology 6502 microprocessor.
 ///
 /// The NES uses a Ricoh 2A03 which is basically a MOS6502 without the decimal mode.
@@ -240,11 +242,11 @@ impl<B: Bus> MOS6502<B> {
 
             // Increments & Decrements
             Opcode::INC => todo!(),
-            Opcode::INX => Ok(self.modify_register(Register::X, |x| x + 1)),
-            Opcode::INY => Ok(self.modify_register(Register::Y, |y| y + 1)),
+            Opcode::INX => Ok(self.modify_register(Register::X, |x| x.wrapping_add(1))),
+            Opcode::INY => Ok(self.modify_register(Register::Y, |y| y.wrapping_add(1))),
             Opcode::DEC => todo!(),
-            Opcode::DEX => todo!(),
-            Opcode::DEY => todo!(),
+            Opcode::DEX => Ok(self.modify_register(Register::X, |x| x.wrapping_sub(1))),
+            Opcode::DEY => Ok(self.modify_register(Register::Y, |y| y.wrapping_sub(1))),
 
             // Jumps & Calls
             Opcode::JMP => self.op_jump(instruction),
@@ -299,8 +301,8 @@ impl<B: Bus> MOS6502<B> {
 
         *register_ref = value;
 
-        // If we're writing to `P` we don't want it to modify itself from it's own value
-        if register != Register::P {
+        // Writing to `P` and `SP` doesn't trigger the status flag calcilation
+        if register != Register::P && register != Register::SP {
             self.p.set(StatusFlag::Zero, value == 0);
             self.p.set(StatusFlag::Negative, value & 0b1000_0000 > 0);
         }
@@ -321,7 +323,7 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn push_stack_u8(&mut self, value: u8) {
-        self.write_u8(self.sp as u16, value);
+        self.write_u8(STACK_START_ADDRESS + self.sp as u16, value);
         self.sp -= 1;
     }
 
@@ -330,12 +332,12 @@ impl<B: Bus> MOS6502<B> {
         self.sp += 1;
         self.wait_cycles += 1;
 
-        let value = self.read_u8(self.sp as u16);
+        let value = self.read_u8(STACK_START_ADDRESS + self.sp as u16);
         value
     }
 
     fn push_stack_u16(&mut self, value: u16) {
-        self.write_u16(self.sp as u16, value);
+        self.write_u16(STACK_START_ADDRESS + self.sp as u16, value);
         self.sp -= 2;
     }
 
@@ -344,7 +346,7 @@ impl<B: Bus> MOS6502<B> {
         self.sp += 2;
         self.wait_cycles += 1;
 
-        let value = self.read_u16(self.sp as u16);
+        let value = self.read_u16(STACK_START_ADDRESS + self.sp as u16);
         value
     }
 
@@ -452,8 +454,6 @@ impl<B: Bus> MOS6502<B> {
                 .0;
         }
 
-        println!("Push stack value: {:08b}", value);
-
         self.push_stack_u8(value);
 
         Ok(())
@@ -461,9 +461,7 @@ impl<B: Bus> MOS6502<B> {
 
     fn op_pull_stack(&mut self, target: Register) -> Result<()> {
         let value = self.pull_stack_u8();
-        println!("Pull stack value {:08b} into {:?}", value, target);
         self.write_register(target, value);
-        println!("P: {:08b}", self.p.0);
         Ok(())
     }
 
