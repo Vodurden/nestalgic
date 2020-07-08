@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Opcode {
     // =====================================================================================
@@ -200,5 +202,12 @@ pub enum Opcode {
     /// No Operation: Do nothing, skip to next instruction
     NOP,
 
+    /// Return from Interrupt: Pull `P` from the stack followed by `PC`
     RTI,
+}
+
+impl fmt::Display for Opcode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }

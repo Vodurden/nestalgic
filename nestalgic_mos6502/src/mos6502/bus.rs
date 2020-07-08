@@ -18,6 +18,12 @@ pub trait Bus {
         self.write_u8(address, lo);
         self.write_u8(address.wrapping_add(1), hi);
     }
+
+    fn read_range(&self, start: u16, end: u16) -> Vec<u8> {
+        (start..end)
+            .map(|a| self.read_u8(a))
+            .collect()
+    }
 }
 
 /// A Bus used for testing. It stores the program in an expected location

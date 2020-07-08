@@ -24,6 +24,7 @@ const INITIALIZATION_VECTOR_ADDRESS: u16 = 0xFFFC;
 const NMI_VECTOR_ADDRESS: u16 = 0xFFFA;
 
 const STACK_START_ADDRESS: u16 = 0x0100;
+const STACK_END_ADDRESS: u16 = 0x01FF;
 
 /// `MOS6502` emulates the functionality of the MOS Technology 6502 microprocessor.
 ///
@@ -248,6 +249,12 @@ impl<B: Bus> MOS6502<B> {
             Opcode::DEX => Ok(self.modify_register(Register::X, |x| x.wrapping_sub(1))),
             Opcode::DEY => Ok(self.modify_register(Register::Y, |y| y.wrapping_sub(1))),
 
+            // Shifts
+            Opcode::ASL => self.op_shift_left(instruction),
+            Opcode::LSR => self.op_shift_right(instruction),
+            Opcode::ROR => self.op_rotate_right(instruction),
+            Opcode::ROL => self.op_rotate_left(instruction),
+
             // Jumps & Calls
             Opcode::JMP => self.op_jump(instruction),
             Opcode::JSR => self.op_jump_subroutine(instruction),
@@ -274,8 +281,9 @@ impl<B: Bus> MOS6502<B> {
 
             // System Functions
             Opcode::NOP => Ok(()),
+            Opcode::RTI => self.op_return_from_interrupt(),
 
-            _ => todo!(),
+            opcode => panic!("Opcode {} not yet implemented", opcode),
         }
     }
 
@@ -322,32 +330,98 @@ impl<B: Bus> MOS6502<B> {
         self.write_register(register, result);
     }
 
-    fn push_stack_u8(&mut self, value: u8) {
-        self.write_u8(STACK_START_ADDRESS + self.sp as u16, value);
-        self.sp -= 1;
+    fn push_stack(&mut self, values: &[u8]) {
+        for &value in values {
+            self.write_u8(STACK_START_ADDRESS + self.sp as u16, value);
+            self.sp = self.sp.wrapping_sub(1);
+        }
     }
 
-    fn pull_stack_u8(&mut self) -> u8 {
-        // Incrementing the stack pointer costs ac ycle on the 6502
-        self.sp += 1;
+    fn pull_stack(&mut self, n: u32) -> Vec<u8> {
+        // Incrementing the stack pointer costs a cycle on the 6502
+        self.sp = self.sp.wrapping_add(1);
         self.wait_cycles += 1;
 
-        let value = self.read_u8(STACK_START_ADDRESS + self.sp as u16);
-        value
+        let mut vec = Vec::new();
+        for _ in 0..n-1 {
+            vec.push(self.read_u8(STACK_START_ADDRESS + self.sp as u16));
+            self.sp = self.sp.wrapping_add(1);
+        }
+
+        // The last read doesn't do `wrapping_add`
+        vec.push(self.read_u8(STACK_START_ADDRESS + self.sp as u16));
+
+        vec
+    }
+
+    fn push_stack_u8(&mut self, value: u8) {
+        self.push_stack(&[value]);
+    }
+
+    fn pull_stack_u8(&mut self) -> u8{
+        match self.pull_stack(1)[..] {
+            [byte] => byte,
+            _ => panic!("self.pull_stack(1) returned unexpected number of elements")
+        }
     }
 
     fn push_stack_u16(&mut self, value: u16) {
-        self.write_u16(STACK_START_ADDRESS + self.sp as u16, value);
-        self.sp -= 2;
+        let [lo, hi] = value.to_le_bytes();
+
+        // When pushing addresses to the stack we push the `hi` bit first
+        self.push_stack(&[hi, lo]);
     }
 
     fn pull_stack_u16(&mut self) -> u16 {
-        // Incrementing the stack pointer costs a cycle on the 6502
-        self.sp += 2;
-        self.wait_cycles += 1;
+        match self.pull_stack(2)[..] {
+            [lo, hi] => u16::from_le_bytes([lo, hi]),
+            _ => panic!("self.pull_stack(1) returned unexpected number of elements")
+        }
+    }
 
-        let value = self.read_u16(STACK_START_ADDRESS + self.sp as u16);
-        value
+    // fn push_stack_u8(&mut self, value: u8) {
+    //     self.write_u8(STACK_START_ADDRESS + self.sp as u16, value);
+    //     self.sp = self.sp.wrapping_sub(1);
+    // }
+
+    // fn pull_stack_u8(&mut self) -> u8 {
+    //     // Incrementing the stack pointer costs a cycle on the 6502
+    //     self.sp = self.sp.wrapping_add(1);
+    //     self.wait_cycles += 1;
+
+    //     let value = self.read_u8(STACK_START_ADDRESS + self.sp as u16);
+    //     value
+    // }
+
+    // fn push_stack_u16(&mut self, value: u16) {
+    //     let [lo, hi] = value.to_le_bytes();
+    //     self.push_stack_u8(hi);
+    //     self.push_stack_u8(lo);
+    // }
+
+    // fn pull_stack_u16(&mut self) -> u16 {
+    //     // We can't just use `pull_stack_u8` twice here because
+    //     // pulling a u16 value is supposed to take `3` cycles but
+    //     // each `pull_stack_u8` takes 4.
+    //     self.sp = self.sp.wrapping_add(1);
+    //     self.wait_cycles += 1;
+
+    //     // Reading `lo` and incrementing `sp` should take 1 cycle.
+    //     // Since `read_u8` already takes a cycle we don't need to
+    //     // increment here.
+    //     let lo = self.read_u8(STACK_START_ADDRESS + self.sp as u16);
+    //     self.sp = self.sp.wrapping_add(1);
+
+    //     let hi = self.read_u8(STACK_START_ADDRESS + self.sp as u16);
+
+    //     u16::from_le_bytes([lo, hi])
+    // }
+
+    pub fn print_stack(&self) {
+        let start = STACK_START_ADDRESS + self.sp as u16;
+        let end = STACK_END_ADDRESS;
+        let bytes = self.bus.read_range(start, end + 1);
+        println!("Stack (0x{:04X}..0x{:04X}): {:X?}", start, end, bytes);
     }
 
     fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<u16> {
@@ -413,7 +487,7 @@ impl<B: Bus> MOS6502<B> {
         // `Implied` instructions don't have an argument so this method should never be called
         // with an implied instruction.
         match instruction.argument {
-            InstructionArgument::Implied => Err(Error::ImpliedReadValue(instruction)),
+            InstructionArgument::Implied => Err(Error::InvalidReadValue(instruction)),
             InstructionArgument::Accumulator => Ok(self.a),
             InstructionArgument::Immediate(value) => Ok(value),
 
@@ -421,6 +495,25 @@ impl<B: Bus> MOS6502<B> {
                 let address = self.try_read_instruction_target_address(instruction)?;
                 let value = self.read_u8(address);
                 Ok(value)
+            }
+        }
+    }
+
+    fn try_write_instruction_value(&mut self, instruction: Instruction, value: u8) -> Result<()> {
+        match instruction.argument {
+            InstructionArgument::Implied => Err(Error::InvalidWriteValue(instruction)),
+            InstructionArgument::Immediate(_) => Err(Error::InvalidWriteValue(instruction)),
+
+            InstructionArgument::Accumulator => {
+                self.write_register(Register::A, value);
+                Ok(())
+            },
+
+            _ => {
+                // TODO: This probably doesn't produce the right number of cycles in all scenarios. Fix later
+                let address = self.try_read_instruction_target_address(instruction)?;
+                self.write_u8(address, value);
+                Ok(())
             }
         }
     }
@@ -491,6 +584,17 @@ impl<B: Bus> MOS6502<B> {
         self.pc = address + 1;
         self.wait_cycles += 1;
         Ok(())
+    }
+
+    fn op_return_from_interrupt(&mut self) -> Result<()> {
+        if let [p, pcl, pch] = self.pull_stack(3)[..] {
+            self.write_register(Register::P, p);
+            self.pc = u16::from_le_bytes([pcl, pch]);
+            Ok(())
+        } else {
+            panic!("self.pull_stack(3) returned unexpected number of elements");
+        }
+
     }
 
     fn op_branch_if(&mut self, instruction: Instruction, condition: bool) -> Result<()> {
@@ -589,6 +693,53 @@ impl<B: Bus> MOS6502<B> {
         self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
         Ok(())
     }
+
+    fn op_shift_left(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+        let result = value.wrapping_shl(1);
+        self.try_write_instruction_value(instruction, result)?;
+
+        // TODO: Carry bit?
+
+        self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
+        Ok(())
+    }
+
+    fn op_shift_right(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+        let result = value.wrapping_shr(1);
+        self.try_write_instruction_value(instruction, result)?;
+
+        // TODO: Carry bit?
+
+        self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
+        Ok(())
+    }
+
+    fn op_rotate_left(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+        let result = value.rotate_left(1);
+        self.try_write_instruction_value(instruction, result)?;
+
+        // TODO: Carry bit
+
+        self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
+        Ok(())
+    }
+
+    fn op_rotate_right(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+
+        let result = value.rotate_right(1);
+
+        // Add the previous carry bit to result
+        let result = result | u8::from(self.p.get(StatusFlag::Carry)) << 7;
+
+        self.try_write_instruction_value(instruction, result)?;
+
+        self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -642,5 +793,142 @@ mod tests {
         assert_eq!(cpu.bus.memory[0x00], 0xBE);
         assert_eq!(cpu.bus.memory[0x01], 0x40);
         assert_eq!(cpu.bus.memory[0x02], 0xFF);
+    }
+
+    /// Pushing a 16 bit address on the stack is a bit fiddly. This test is to check that `JSR` and `RTS` have the correct
+    /// interactions and that they write exactly the right bytes to the stack _in the right order_.
+    #[test]
+    pub fn op_jump_subroutine_and_return() {
+        let main_program = vec![
+            // Stage 1: Reset the stack pointer. Add something to `A` so we know it actually changes over time
+            0xA2, 0xFF,        // 0xF000: LDX #$FF
+            0x9A,              // 0xF002: TXS
+            0xA9, 0xBB,        // 0xF003: LDA #$BB
+
+            // Stage 2: Jump to `0x0200`
+            0x20, 0x00, 0x02,  // 0xF005: JSR $0200
+
+            // Stage 4: After returning from jump. Load `0xBE` into `X`, halt program.
+            0xA2, 0xBE,        // 0xF008: LDX #$BE
+        ];
+
+        let sub_program = vec![
+            // Stage 3: Load `0xFF` into `A`, return from jump
+            0xA9, 0xFF,       // 0x0200: LDA #$FF
+            0x60,             // 0x0202: RTS
+        ];
+
+        let bus = RamBus16kb::new()
+            .with_memory_at(0xF000, main_program)
+            .with_memory_at(0x0200, sub_program);
+        let mut cpu = MOS6502::new(bus);
+        println!("{:X?}", Vec::from(&cpu.bus.memory[0x0200..0x0205]));
+
+        // Pretend we already ran the reset sequence
+        cpu.pc = 0xF000; // We've put the program in 0xF000 so we can see the high byte on the stack
+        cpu.wait_cycles = 0;
+
+        // Stage 1 checks
+        cpu.cycle_to_next_instruction().unwrap(); // LDX #$FF
+        cpu.cycle_to_next_instruction().unwrap(); // TXS
+        cpu.cycle_to_next_instruction().unwrap(); // LDA #$BB
+        assert_eq!(cpu.a, 0xBB);
+        assert_eq!(cpu.sp, 0xFF);
+
+        // Stage 2 checks: We expect the stack to contain [0xF0, 0x07]. We expect 0x07 instead of 0x08 because `JSR` pushes
+        // the current address _minus 1_ to the stack.
+        assert_eq!(cpu.pc, 0xF005);
+        cpu.cycle_to_next_instruction().unwrap(); // JSR $0200
+        assert_eq!(cpu.pc, 0x0200);
+        assert_eq!(cpu.bus.memory[0x01FF], 0xF0, "found {:X} at SP 0xFF, expected {:X}", cpu.bus.memory[0x01FF], 0xF0);
+        assert_eq!(cpu.bus.memory[0x01FE], 0x07, "found {:X} at SP 0xFE, expected {:X}", cpu.bus.memory[0x01FE], 0x07);
+
+        // Stage 3 checks: We expect to jump back to `0xF008` because `RTS` adds 1 to the address retrieved from the stack
+        println!("{:X}: {:X?}", cpu.pc, Vec::from(&cpu.bus.memory[0x0200..0x0205]));
+        cpu.cycle_to_next_instruction().unwrap(); // LDA #$FF
+        cpu.cycle_to_next_instruction().unwrap(); // RTS
+        assert_eq!(cpu.a, 0xFF);
+        assert_eq!(cpu.pc, 0xF008);
+
+        // Stage 4 checks
+        cpu.cycle_to_next_instruction().unwrap(); // LDX #$BE
+        assert_eq!(cpu.x, 0xBE);
+    }
+
+    #[test]
+    pub fn op_push_pop() {
+        let program = vec![
+            // Set `SP` to `0xFF`         (stage 1)
+            0xA2, 0xFF,  // LDX #$FF
+            0x9A,        // TXS
+
+            // Push `0xE0` onto the stack (stage 2)
+            0xA9, 0xE0,  // LDA #$E0
+            0x48,        // PHA
+
+            // Push `0xBB` onto the stack (stage 3)
+            0xA9, 0xBB,  // LDA #$BB
+            0x48,        // PHA
+
+            // Push `0xFF` onto the stack (stage 4)
+            0x8A,        // TXA
+            0x48,        // PHA
+
+            // Clear `A`. Pull `0xFF` from the stack (stage 5)
+            0xA9, 0x00,  // LDA #$00
+            0x68,        // PLA
+
+            // Pull `0xBB` from the stack (stage 6)
+            0x68,        // PLA
+
+            // Pull `0xE)` from the stack (stage 6)
+            0x68,        // PLA
+        ];
+
+        let bus = RamBus16kb::new()
+            .with_program(program);
+        let mut cpu = MOS6502::new(bus);
+
+        // Cycle the reset instructions
+        cpu.cycle_to_next_instruction().unwrap();
+
+        // Stage 1 checks
+        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction().unwrap();
+        assert_eq!(cpu.sp, 0xFF);
+
+        // Stage 2 checks
+        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction().unwrap();
+        assert_eq!(cpu.sp, 0xFE);
+        assert_eq!(cpu.bus.memory[0x01FF], 0xE0);
+
+        // Stage 3 checks
+        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction().unwrap();
+        assert_eq!(cpu.sp, 0xFD);
+        assert_eq!(cpu.bus.memory[0x01FE], 0xBB);
+
+        // Stage 4 checks
+        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction().unwrap();
+        assert_eq!(cpu.sp, 0xFC);
+        assert_eq!(cpu.bus.memory[0x01FD], 0xFF);
+
+        // Stage 5 checks
+        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction().unwrap();
+        assert_eq!(cpu.sp, 0xFD);
+        assert_eq!(cpu.a, 0xFF);
+
+        // Stage 6 checks
+        cpu.cycle_to_next_instruction().unwrap();
+        assert_eq!(cpu.sp, 0xFE);
+        assert_eq!(cpu.a, 0xBB);
+
+        // Stage 7 checks
+        cpu.cycle_to_next_instruction().unwrap();
+        assert_eq!(cpu.sp, 0xFF);
+        assert_eq!(cpu.a, 0xE0);
     }
 }
