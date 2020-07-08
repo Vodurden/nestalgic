@@ -379,44 +379,6 @@ impl<B: Bus> MOS6502<B> {
         }
     }
 
-    // fn push_stack_u8(&mut self, value: u8) {
-    //     self.write_u8(STACK_START_ADDRESS + self.sp as u16, value);
-    //     self.sp = self.sp.wrapping_sub(1);
-    // }
-
-    // fn pull_stack_u8(&mut self) -> u8 {
-    //     // Incrementing the stack pointer costs a cycle on the 6502
-    //     self.sp = self.sp.wrapping_add(1);
-    //     self.wait_cycles += 1;
-
-    //     let value = self.read_u8(STACK_START_ADDRESS + self.sp as u16);
-    //     value
-    // }
-
-    // fn push_stack_u16(&mut self, value: u16) {
-    //     let [lo, hi] = value.to_le_bytes();
-    //     self.push_stack_u8(hi);
-    //     self.push_stack_u8(lo);
-    // }
-
-    // fn pull_stack_u16(&mut self) -> u16 {
-    //     // We can't just use `pull_stack_u8` twice here because
-    //     // pulling a u16 value is supposed to take `3` cycles but
-    //     // each `pull_stack_u8` takes 4.
-    //     self.sp = self.sp.wrapping_add(1);
-    //     self.wait_cycles += 1;
-
-    //     // Reading `lo` and incrementing `sp` should take 1 cycle.
-    //     // Since `read_u8` already takes a cycle we don't need to
-    //     // increment here.
-    //     let lo = self.read_u8(STACK_START_ADDRESS + self.sp as u16);
-    //     self.sp = self.sp.wrapping_add(1);
-
-    //     let hi = self.read_u8(STACK_START_ADDRESS + self.sp as u16);
-
-    //     u16::from_le_bytes([lo, hi])
-    // }
-
     pub fn print_stack(&self) {
         let start = STACK_START_ADDRESS + self.sp as u16;
         let end = STACK_END_ADDRESS;
