@@ -24,7 +24,7 @@ fn nestest() {
     // loop can start processing the test file
     cpu.cycle_to_next_instruction().unwrap();
 
-    for assertion in ASSERTIONS.iter() {
+    for (assertion_number, assertion) in ASSERTIONS.iter().enumerate() {
         // Verify the expected state from the previous instruction
         assert_eq!(cpu.pc, assertion.pc, "pc is: {:X}, expected: {:X}", cpu.pc, assertion.pc);
         assert_eq!(
@@ -51,7 +51,10 @@ fn nestest() {
             );
         }
 
-        println!("{:X} (P:{:08b}, SP:{:02X}, A:{:02X}): {:02X?}", cpu.pc, cpu.p.0, cpu.sp, cpu.a, cpu.next_instruction());
+        println!(
+            "{}/{}: {:X} (P:{:08b}, SP:{:02X}, A:{:02X}): {:02X?}",
+            assertion_number, ASSERTIONS.len(), cpu.pc, cpu.p.0, cpu.sp, cpu.a, cpu.next_instruction()
+        );
         cpu.cycle_to_next_instruction().unwrap();
     }
 }

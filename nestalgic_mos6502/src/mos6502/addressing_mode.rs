@@ -1,8 +1,5 @@
 use std::fmt;
 
-use super::Address;
-use super::bus::Bus;
-
 /// `AddressingMode` is combined with `Opcode` to decide _where_ the arguments for an opcode should be sourced from.
 ///
 /// If the `AddressingMode` is `Accumulator`
@@ -82,41 +79,5 @@ pub enum AddressingMode {
 impl fmt::Display for AddressingMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
-    }
-}
-
-impl AddressingMode {
-    /// Read an address from `bus` starting at `start` using the current addressing mode.
-    ///
-    /// Returns the address and the number of bytes read from the bus which is always `1` or `2`.
-    pub fn read_address(&self, start: Address, bus: &impl Bus) -> (Address, u16) {
-        match self {
-            // 8-bit addressing modes
-            AddressingMode::Implied => self.read_address_u8(start, bus),
-            AddressingMode::Accumulator => self.read_address_u8(start, bus),
-            AddressingMode::Immediate => self.read_address_u8(start, bus),
-            AddressingMode::ZeroPage => self.read_address_u8(start, bus),
-            AddressingMode::ZeroPageX => self.read_address_u8(start, bus),
-            AddressingMode::ZeroPageY => self.read_address_u8(start, bus),
-            AddressingMode::Relative => self.read_address_u8(start, bus),
-            AddressingMode::IndexedIndirect => self.read_address_u8(start, bus),
-            AddressingMode::IndirectIndexed => self.read_address_u8(start, bus),
-
-            // 16-bit addressing modes
-            AddressingMode::Absolute => self.read_address_u16(start, bus),
-            AddressingMode::AbsoluteX => self.read_address_u16(start, bus),
-            AddressingMode::AbsoluteY => self.read_address_u16(start, bus),
-            AddressingMode::Indirect => self.read_address_u16(start, bus),
-        }
-    }
-
-    fn read_address_u8(&self, start: Address, bus: &impl Bus) -> (Address, u16) {
-        let address = bus.read_u8(start);
-        (address as u16, 1)
-    }
-
-    fn read_address_u16(&self, start: Address, bus: &impl Bus) -> (Address, u16) {
-        let address = bus.read_u16(start);
-        (address, 2)
     }
 }

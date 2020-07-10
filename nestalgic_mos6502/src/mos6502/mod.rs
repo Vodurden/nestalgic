@@ -201,11 +201,6 @@ impl<B: Bus> MOS6502<B> {
         self.wait_cycles += 1;
     }
 
-    fn write_u16(&mut self, address: Address, value: u16) {
-        self.bus.write_u16(address, value);
-        self.wait_cycles += 2;
-    }
-
     fn execute_instruction(&mut self, instruction: Instruction) -> Result<()> {
         match instruction.opcode {
             // Register Operations
@@ -660,9 +655,6 @@ impl<B: Bus> MOS6502<B> {
         let value = self.try_read_instruction_value(instruction)?;
         let result = value.wrapping_shl(1);
         self.try_write_instruction_value(instruction, result)?;
-
-        // TODO: Carry bit?
-
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
         Ok(())
     }
@@ -671,19 +663,15 @@ impl<B: Bus> MOS6502<B> {
         let value = self.try_read_instruction_value(instruction)?;
         let result = value.wrapping_shr(1);
         self.try_write_instruction_value(instruction, result)?;
-
-        // TODO: Carry bit?
-
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
         Ok(())
     }
 
     fn op_rotate_left(&mut self, instruction: Instruction) -> Result<()> {
         let value = self.try_read_instruction_value(instruction)?;
-        let result = value.rotate_left(1);
+        let result = value.wrapping_shl(1);
+        let result = result | u8::from(self.p.get(StatusFlag::Carry));
         self.try_write_instruction_value(instruction, result)?;
-
-        // TODO: Carry bit
 
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
         Ok(())
@@ -691,12 +679,8 @@ impl<B: Bus> MOS6502<B> {
 
     fn op_rotate_right(&mut self, instruction: Instruction) -> Result<()> {
         let value = self.try_read_instruction_value(instruction)?;
-
-        let result = value.rotate_right(1);
-
-        // Add the previous carry bit to result
+        let result = value.wrapping_shr(1);
         let result = result | u8::from(self.p.get(StatusFlag::Carry)) << 7;
-
         self.try_write_instruction_value(instruction, result)?;
 
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
