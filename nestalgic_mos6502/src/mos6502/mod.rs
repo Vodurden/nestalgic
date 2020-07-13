@@ -6,6 +6,7 @@ mod error;
 mod register;
 mod status;
 
+use addressing_mode::AddressingMode;
 use instruction::{Instruction, InstructionArgument};
 use opcode::Opcode;
 use error::Error;
@@ -399,7 +400,8 @@ impl<B: Bus> MOS6502<B> {
                 self.wait_cycles += 1;
                 let target_lo = self.read_u8(target_address_lo as u16);
 
-                // Incrementing hi by one is done as part of the read cycle
+                // Incrementing `target_address_lo` by one is done as part of the read cycle so it
+                // doesn't cost an extra cycle
                 let target_address_hi = target_address_lo.wrapping_add(1);
                 let target_hi = self.read_u8(target_address_hi as u16);
 
@@ -485,6 +487,22 @@ impl<B: Bus> MOS6502<B> {
                 Ok(())
             }
         }
+    }
+
+    fn try_modify_instruction_value<F>(&mut self, instruction: Instruction, f: F) -> Result<(u8, u8)>
+        where F: FnOnce(u8) -> u8
+    {
+        let value = self.try_read_instruction_value(instruction)?;
+        let result = f(value);
+
+        // For non-accumulator modify instructions the 6502 writes the result twice, incurring an extra cycle cost
+        if instruction.addressing_mode != AddressingMode::Accumulator {
+            self.wait_cycles += 1;
+        }
+
+        self.try_write_instruction_value(instruction, result)?;
+
+        Ok((value, result))
     }
 
     fn op_load(&mut self, register: Register, instruction: Instruction) -> Result<()> {
@@ -663,38 +681,62 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn op_shift_left(&mut self, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
-        let result = value.wrapping_shl(1);
-        self.try_write_instruction_value(instruction, result)?;
+        let (value, result) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shl(1))?;
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
+
+        // We need to manually check `Zero` and `Negative` here since they apply
+        // even if we're writing the memory
+        self.p.set(StatusFlag::Zero, result == 0);
+        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
+
         Ok(())
     }
 
     fn op_shift_right(&mut self, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
-        let result = value.wrapping_shr(1);
-        self.try_write_instruction_value(instruction, result)?;
+        let (value, result) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shr(1))?;
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
+
+        // We need to manually check `Zero` and `Negative` here since they apply
+        // even if we're writing the memory
+        self.p.set(StatusFlag::Zero, result == 0);
+        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
+
         Ok(())
     }
 
     fn op_rotate_left(&mut self, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
-        let result = value.wrapping_shl(1);
-        let result = result | u8::from(self.p.get(StatusFlag::Carry));
-        self.try_write_instruction_value(instruction, result)?;
+        let carry = u8::from(self.p.get(StatusFlag::Carry));
+        let (value, result) = self.try_modify_instruction_value(instruction, |value| {
+            let result = value.wrapping_shl(1);
+            let result = result | carry;
+            result
+        })?;
 
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
+
+        // We need to manually check `Zero` and `Negative` here since they apply
+        // even if we're writing the memory
+        self.p.set(StatusFlag::Zero, result == 0);
+        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
+
         Ok(())
     }
 
     fn op_rotate_right(&mut self, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
-        let result = value.wrapping_shr(1);
-        let result = result | u8::from(self.p.get(StatusFlag::Carry)) << 7;
-        self.try_write_instruction_value(instruction, result)?;
+        let carry = u8::from(self.p.get(StatusFlag::Carry)) << 7;
+        let (value, result) = self.try_modify_instruction_value(instruction, |value| {
+            let result = value.wrapping_shr(1);
+            let result = result | carry;
+            result
+        })?;
 
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
+
+        // We need to manually check `Zero` and `Negative` here since they apply
+        // even if we're writing the memory
+        self.p.set(StatusFlag::Zero, result == 0);
+        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
+
         Ok(())
     }
 }
