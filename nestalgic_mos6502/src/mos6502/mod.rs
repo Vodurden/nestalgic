@@ -238,10 +238,10 @@ impl<B: Bus> MOS6502<B> {
             Opcode::CPY => self.op_compare(Register::Y, instruction),
 
             // Increments & Decrements
-            Opcode::INC => todo!(),
+            Opcode::INC => self.try_modify_instruction_value(instruction, |v| v.wrapping_add(1)).map(|_| ()),
             Opcode::INX => Ok(self.modify_register(Register::X, |x| x.wrapping_add(1))),
             Opcode::INY => Ok(self.modify_register(Register::Y, |y| y.wrapping_add(1))),
-            Opcode::DEC => todo!(),
+            Opcode::DEC => self.try_modify_instruction_value(instruction, |v| v.wrapping_sub(1)).map(|_| ()),
             Opcode::DEX => Ok(self.modify_register(Register::X, |x| x.wrapping_sub(1))),
             Opcode::DEY => Ok(self.modify_register(Register::Y, |y| y.wrapping_sub(1))),
 
@@ -484,6 +484,7 @@ impl<B: Bus> MOS6502<B> {
                 // TODO: This probably doesn't produce the right number of cycles in all scenarios. Fix later
                 let address = self.try_read_instruction_target_address(instruction)?;
                 self.write_u8(address, value);
+
                 Ok(())
             }
         }
@@ -501,6 +502,11 @@ impl<B: Bus> MOS6502<B> {
         }
 
         self.try_write_instruction_value(instruction, result)?;
+
+        // When doing a `modify` we affect `Zero` and `Negative` even when
+        // writing to memory
+        self.p.set(StatusFlag::Zero, result == 0);
+        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
 
         Ok((value, result))
     }
@@ -681,32 +687,22 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn op_shift_left(&mut self, instruction: Instruction) -> Result<()> {
-        let (value, result) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shl(1))?;
+        let (value, _) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shl(1))?;
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
-
-        // We need to manually check `Zero` and `Negative` here since they apply
-        // even if we're writing the memory
-        self.p.set(StatusFlag::Zero, result == 0);
-        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
 
         Ok(())
     }
 
     fn op_shift_right(&mut self, instruction: Instruction) -> Result<()> {
-        let (value, result) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shr(1))?;
+        let (value, _) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shr(1))?;
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
-
-        // We need to manually check `Zero` and `Negative` here since they apply
-        // even if we're writing the memory
-        self.p.set(StatusFlag::Zero, result == 0);
-        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
 
         Ok(())
     }
 
     fn op_rotate_left(&mut self, instruction: Instruction) -> Result<()> {
         let carry = u8::from(self.p.get(StatusFlag::Carry));
-        let (value, result) = self.try_modify_instruction_value(instruction, |value| {
+        let (value, _) = self.try_modify_instruction_value(instruction, |value| {
             let result = value.wrapping_shl(1);
             let result = result | carry;
             result
@@ -714,28 +710,18 @@ impl<B: Bus> MOS6502<B> {
 
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
 
-        // We need to manually check `Zero` and `Negative` here since they apply
-        // even if we're writing the memory
-        self.p.set(StatusFlag::Zero, result == 0);
-        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
-
         Ok(())
     }
 
     fn op_rotate_right(&mut self, instruction: Instruction) -> Result<()> {
         let carry = u8::from(self.p.get(StatusFlag::Carry)) << 7;
-        let (value, result) = self.try_modify_instruction_value(instruction, |value| {
+        let (value, _) = self.try_modify_instruction_value(instruction, |value| {
             let result = value.wrapping_shr(1);
             let result = result | carry;
             result
         })?;
 
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
-
-        // We need to manually check `Zero` and `Negative` here since they apply
-        // even if we're writing the memory
-        self.p.set(StatusFlag::Zero, result == 0);
-        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
 
         Ok(())
     }
