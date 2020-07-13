@@ -77,6 +77,12 @@ pub struct MOS6502<B> {
     pub bus: B,
 }
 
+#[derive(Eq, PartialEq, Debug)]
+enum ReadWriteMode {
+    Read,
+    Write,
+}
+
 impl<B: Bus> MOS6502<B> {
     pub fn new(bus: B) -> MOS6502<B> {
         let mut cpu = MOS6502 {
@@ -382,11 +388,17 @@ impl<B: Bus> MOS6502<B> {
         println!("Stack (0x{:04X}..0x{:04X}): {:X?}", start, end, bytes);
     }
 
-    fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<u16> {
+    fn try_access_instruction_target_address(&mut self, instruction: Instruction, read_write_mode: ReadWriteMode) -> Result<u16> {
         match instruction.argument {
             InstructionArgument::ZeroPage(address) => Ok(address as u16),
-            InstructionArgument::ZeroPageX(address) => Ok(address.wrapping_add(self.x) as u16),
-            InstructionArgument::ZeroPageY(address) => Ok(address.wrapping_add(self.y) as u16),
+
+            InstructionArgument::ZeroPageX(address) => {
+                Ok(address.wrapping_add(self.x) as u16)
+            },
+
+            InstructionArgument::ZeroPageY(address) => {
+                Ok(address.wrapping_add(self.y) as u16)
+            },
 
             InstructionArgument::Relative(offset) => {
                 // TODO: +2 cycles if page boundary crossed
@@ -414,24 +426,55 @@ impl<B: Bus> MOS6502<B> {
             },
 
             InstructionArgument::IndirectIndexed(indexed_address) => {
-                let address = self.read_u16(indexed_address as u16);
-                let address = address.wrapping_add(self.y as u16);
-                // TODO: Add Carry Bit
+                let target_address_lo = indexed_address;
+                let target_lo = self.read_u8(target_address_lo as u16);
 
-                // +1 cycle if page boundary is crossed
-                if (indexed_address as u16 & 0xFF) + (self.y as u16) > 0xFF {
+                let target_address_hi = indexed_address.wrapping_add(1);
+                let target_hi = self.read_u8(target_address_hi as u16);
+
+                // We don't use `self.read_u16` here because we need each part of
+                // the 8-bit address to wrap around on the zero page, rather then
+                // the whole address space
+                let target_address = u16::from_le_bytes([target_lo, target_hi]);
+
+                // +1 cycle if page boundary is crossed or if we are performing this
+                // read as part of a write
+                let (_, page_boundary_crossed) = target_lo.overflowing_add(self.y);
+                if page_boundary_crossed || read_write_mode == ReadWriteMode::Write {
                     self.wait_cycles += 1;
                 }
+
+                let adjusted_address = target_address.wrapping_add(self.y as u16);
+
+                // let target_address = target_address.wrapping_add(self.y as u16);
+                Ok(adjusted_address)
+            },
+
+            InstructionArgument::Indirect(target_address) => {
+                let address_lo = self.read_u8(target_address);
+
+                // This is a bug in the original 6502 that we need to emulate: If our address
+                // spans two pages then the least signifiant byte (the "hi" byte) wraps around
+                // and is fetched from the same page. It's known as the "JMP $xxFF" bug.
+                //
+                // For example: `JMP $02FF` will fetch byte `$02FF` as the low byte and `$0200` as
+                // the high byte, instead of `$02FF` and `$0300` as we would normally expect.
+                let [target_address_lo, target_address_hi] = target_address.to_le_bytes();
+                let target_address_lo = target_address_lo.wrapping_add(1);
+                let target_address_plus_one_with_bug = u16::from_le_bytes([target_address_lo, target_address_hi]);
+                let address_hi = self.read_u8(target_address_plus_one_with_bug);
+
+                let address = u16::from_le_bytes([address_lo, address_hi]);
 
                 Ok(address)
             },
 
-            InstructionArgument::Indirect(address_address) => Ok(self.read_u16(address_address)),
             InstructionArgument::Absolute(address) => Ok(address),
 
             InstructionArgument::AbsoluteX(address) => {
-                // +1 cycle if page boundary crossed
-                if (address & 0xFF) + (self.y as u16) > 0xFF {
+                // +1 cycle if page boundary crossed or if we are writing
+                let (_, page_boundary_crossed) = (address as u8).overflowing_add(self.x);
+                    if page_boundary_crossed || read_write_mode == ReadWriteMode::Write {
                     self.wait_cycles += 1;
                 }
 
@@ -439,8 +482,9 @@ impl<B: Bus> MOS6502<B> {
             },
 
             InstructionArgument::AbsoluteY(address) => {
-                // +1 cycle if page boundary crossed
-                if (address & 0xFF) + (self.y as u16) > 0xFF {
+                // +1 cycle if page boundary crossed or if we are writing
+                let (_, page_boundary_crossed) = (address as u8).overflowing_add(self.y);
+                if page_boundary_crossed || read_write_mode == ReadWriteMode::Write {
                     self.wait_cycles += 1;
                 }
 
@@ -449,6 +493,10 @@ impl<B: Bus> MOS6502<B> {
 
             _ => Err(Error::InvalidReadAddress(instruction)),
         }
+    }
+
+    fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<u16> {
+        self.try_access_instruction_target_address(instruction, ReadWriteMode::Read)
     }
 
     /// Attempt to read the u8 value targeted by this instruction.
@@ -481,8 +529,7 @@ impl<B: Bus> MOS6502<B> {
             },
 
             _ => {
-                // TODO: This probably doesn't produce the right number of cycles in all scenarios. Fix later
-                let address = self.try_read_instruction_target_address(instruction)?;
+                let address = self.try_access_instruction_target_address(instruction, ReadWriteMode::Write)?;
                 self.write_u8(address, value);
 
                 Ok(())
