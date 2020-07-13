@@ -52,8 +52,8 @@ fn nestest() {
         }
 
         println!(
-            "{}/{}: {:X} (P:{:08b}, SP:{:02X}, A:{:02X}): {:02X?}",
-            assertion_number, ASSERTIONS.len(), cpu.pc, cpu.p.0, cpu.sp, cpu.a, cpu.next_instruction()
+            "{}/{}: {:X} (P:{:08b}, SP:{:02X}, A:{:02X}, X:{:02X}, Y:{:02X}): {:02X?}",
+            assertion_number, ASSERTIONS.len(), cpu.pc, cpu.p.0, cpu.sp, cpu.a, cpu.x, cpu.y, cpu.next_instruction()
         );
         cpu.cycle_to_next_instruction().unwrap();
     }

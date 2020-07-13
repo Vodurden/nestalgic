@@ -394,9 +394,21 @@ impl<B: Bus> MOS6502<B> {
             }
 
             InstructionArgument::IndexedIndirect(indexed_address) => {
-                let indexed_address = indexed_address.wrapping_add(self.x);
-                let address = self.read_u16(indexed_address as u16);
-                Ok(address)
+                // Adding `x` to the address costs 1 cycle on the 6502
+                let target_address_lo = indexed_address.wrapping_add(self.x);
+                self.wait_cycles += 1;
+                let target_lo = self.read_u8(target_address_lo as u16);
+
+                // Incrementing hi by one is done as part of the read cycle
+                let target_address_hi = target_address_lo.wrapping_add(1);
+                let target_hi = self.read_u8(target_address_hi as u16);
+
+                // We don't use `self.read_u16` here because we need each part of
+                // the 8-bit address to wrap around on the zero page, rather then
+                // the whole address space
+                let target_address = u16::from_le_bytes([target_lo, target_hi]);
+
+                Ok(target_address)
             },
 
             InstructionArgument::IndirectIndexed(indexed_address) => {
@@ -483,8 +495,7 @@ impl<B: Bus> MOS6502<B> {
 
     fn op_store(&mut self, register: Register, instruction: Instruction) -> Result<()> {
         let value = self.read_register(register);
-        let address = self.try_read_instruction_target_address(instruction)?;
-        self.write_u8(address, value);
+        self.try_write_instruction_value(instruction, value)?;
         Ok(())
     }
 
