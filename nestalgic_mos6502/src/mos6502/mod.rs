@@ -19,6 +19,8 @@ pub use status::{Status, StatusFlag};
 pub type Result<A> = std::result::Result<A, Error>;
 
 pub type Address = u16;
+pub type BytesUsed = u16;
+pub type CyclesTaken = u32;
 
 const INITIALIZATION_VECTOR_ADDRESS: u16 = 0xFFFC;
 
@@ -75,12 +77,6 @@ pub struct MOS6502<B> {
     pub wait_cycles: u32,
 
     pub bus: B,
-}
-
-#[derive(Eq, PartialEq, Debug)]
-enum ReadWriteMode {
-    Read,
-    Write,
 }
 
 impl<B: Bus> MOS6502<B> {
@@ -194,12 +190,6 @@ impl<B: Bus> MOS6502<B> {
     fn read_u8(&mut self, address: Address) -> u8 {
         let byte = self.bus.read_u8(address);
         self.wait_cycles += 1;
-        byte
-    }
-
-    fn read_u16(&mut self, address: Address) -> u16 {
-        let byte = self.bus.read_u16(address);
-        self.wait_cycles += 2;
         byte
     }
 
@@ -388,173 +378,35 @@ impl<B: Bus> MOS6502<B> {
         println!("Stack (0x{:04X}..0x{:04X}): {:X?}", start, end, bytes);
     }
 
-    fn try_access_instruction_target_address(&mut self, instruction: Instruction, read_write_mode: ReadWriteMode) -> Result<u16> {
-        match instruction.argument {
-            InstructionArgument::ZeroPage(address) => Ok(address as u16),
+    fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<Address> {
+        let (addressable, address_cycles) = instruction.addressing.target(&self, false)?;
+        let address = addressable.address()?;
 
-            InstructionArgument::ZeroPageX(address) => {
-                Ok(address.wrapping_add(self.x) as u16)
-            },
-
-            InstructionArgument::ZeroPageY(address) => {
-                Ok(address.wrapping_add(self.y) as u16)
-            },
-
-            InstructionArgument::Relative(offset) => {
-                // TODO: +2 cycles if page boundary crossed
-
-                Ok(self.pc.wrapping_add(offset as u16))
-            }
-
-            InstructionArgument::IndexedIndirect(indexed_address) => {
-                // Adding `x` to the address costs 1 cycle on the 6502
-                let target_address_lo = indexed_address.wrapping_add(self.x);
-                self.wait_cycles += 1;
-                let target_lo = self.read_u8(target_address_lo as u16);
-
-                // Incrementing `target_address_lo` by one is done as part of the read cycle so it
-                // doesn't cost an extra cycle
-                let target_address_hi = target_address_lo.wrapping_add(1);
-                let target_hi = self.read_u8(target_address_hi as u16);
-
-                // We don't use `self.read_u16` here because we need each part of
-                // the 8-bit address to wrap around on the zero page, rather then
-                // the whole address space
-                let target_address = u16::from_le_bytes([target_lo, target_hi]);
-
-                Ok(target_address)
-            },
-
-            InstructionArgument::IndirectIndexed(indexed_address) => {
-                let target_address_lo = indexed_address;
-                let target_lo = self.read_u8(target_address_lo as u16);
-
-                let target_address_hi = indexed_address.wrapping_add(1);
-                let target_hi = self.read_u8(target_address_hi as u16);
-
-                // We don't use `self.read_u16` here because we need each part of
-                // the 8-bit address to wrap around on the zero page, rather then
-                // the whole address space
-                let target_address = u16::from_le_bytes([target_lo, target_hi]);
-
-                // +1 cycle if page boundary is crossed or if we are performing this
-                // read as part of a write
-                let (_, page_boundary_crossed) = target_lo.overflowing_add(self.y);
-                if page_boundary_crossed || read_write_mode == ReadWriteMode::Write {
-                    self.wait_cycles += 1;
-                }
-
-                let adjusted_address = target_address.wrapping_add(self.y as u16);
-
-                // let target_address = target_address.wrapping_add(self.y as u16);
-                Ok(adjusted_address)
-            },
-
-            InstructionArgument::Indirect(target_address) => {
-                let address_lo = self.read_u8(target_address);
-
-                // This is a bug in the original 6502 that we need to emulate: If our address
-                // spans two pages then the least signifiant byte (the "hi" byte) wraps around
-                // and is fetched from the same page. It's known as the "JMP $xxFF" bug.
-                //
-                // For example: `JMP $02FF` will fetch byte `$02FF` as the low byte and `$0200` as
-                // the high byte, instead of `$02FF` and `$0300` as we would normally expect.
-                let [target_address_lo, target_address_hi] = target_address.to_le_bytes();
-                let target_address_lo = target_address_lo.wrapping_add(1);
-                let target_address_plus_one_with_bug = u16::from_le_bytes([target_address_lo, target_address_hi]);
-                let address_hi = self.read_u8(target_address_plus_one_with_bug);
-
-                let address = u16::from_le_bytes([address_lo, address_hi]);
-
-                Ok(address)
-            },
-
-            InstructionArgument::Absolute(address) => Ok(address),
-
-            InstructionArgument::AbsoluteX(address) => {
-                // +1 cycle if page boundary crossed or if we are writing
-                let (_, page_boundary_crossed) = (address as u8).overflowing_add(self.x);
-                    if page_boundary_crossed || read_write_mode == ReadWriteMode::Write {
-                    self.wait_cycles += 1;
-                }
-
-                Ok(address.wrapping_add(self.x as u16))
-            },
-
-            InstructionArgument::AbsoluteY(address) => {
-                // +1 cycle if page boundary crossed or if we are writing
-                let (_, page_boundary_crossed) = (address as u8).overflowing_add(self.y);
-                if page_boundary_crossed || read_write_mode == ReadWriteMode::Write {
-                    self.wait_cycles += 1;
-                }
-
-                Ok(address.wrapping_add(self.y as u16))
-            },
-
-            _ => Err(Error::InvalidReadAddress(instruction)),
-        }
+        self.wait_cycles += address_cycles;
+        Ok(address)
     }
 
-    fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<u16> {
-        self.try_access_instruction_target_address(instruction, ReadWriteMode::Read)
-    }
-
-    /// Attempt to read the u8 value targeted by this instruction.
-    ///
-    /// If the `InstructionArgument` of the `Instruction` is `Implied` this function will fail.
     fn try_read_instruction_value(&mut self, instruction: Instruction) -> Result<u8> {
-        // `Implied` instructions don't have an argument so this method should never be called
-        // with an implied instruction.
-        match instruction.argument {
-            InstructionArgument::Implied => Err(Error::InvalidReadValue(instruction)),
-            InstructionArgument::Accumulator => Ok(self.a),
-            InstructionArgument::Immediate(value) => Ok(value),
+        let (addressable, address_cycles) = instruction.addressing.target(&self, false)?;
+        let (value, read_cycles) = addressable.read(self);
 
-            _ => {
-                let address = self.try_read_instruction_target_address(instruction)?;
-                let value = self.read_u8(address);
-                Ok(value)
-            }
-        }
+        self.wait_cycles += address_cycles + read_cycles;
+        Ok(value)
     }
 
     fn try_write_instruction_value(&mut self, instruction: Instruction, value: u8) -> Result<()> {
-        match instruction.argument {
-            InstructionArgument::Implied => Err(Error::InvalidWriteValue(instruction)),
-            InstructionArgument::Immediate(_) => Err(Error::InvalidWriteValue(instruction)),
+        let (addressable, address_cycles) = instruction.addressing.target(&self, true)?;
+        let write_cycles = addressable.try_write(self, value)?;
 
-            InstructionArgument::Accumulator => {
-                self.write_register(Register::A, value);
-                Ok(())
-            },
-
-            _ => {
-                let address = self.try_access_instruction_target_address(instruction, ReadWriteMode::Write)?;
-                self.write_u8(address, value);
-
-                Ok(())
-            }
-        }
+        self.wait_cycles += address_cycles + write_cycles;
+        Ok(())
     }
 
-    fn try_modify_instruction_value<F>(&mut self, instruction: Instruction, f: F) -> Result<(u8, u8)>
-        where F: FnOnce(u8) -> u8
-    {
-        let value = self.try_read_instruction_value(instruction)?;
-        let result = f(value);
+    fn try_modify_instruction_value(&mut self, instruction: Instruction, f: impl FnOnce(u8) -> u8) -> Result<(u8, u8)> {
+        let (addressable, address_cycles) = instruction.addressing.target(&self, false)?;
+        let (value, result, modify_cycles) = addressable.try_modify(self, f)?;
 
-        // For non-accumulator modify instructions the 6502 writes the result twice, incurring an extra cycle cost
-        if instruction.addressing_mode != AddressingMode::Accumulator {
-            self.wait_cycles += 1;
-        }
-
-        self.try_write_instruction_value(instruction, result)?;
-
-        // When doing a `modify` we affect `Zero` and `Negative` even when
-        // writing to memory
-        self.p.set(StatusFlag::Zero, result == 0);
-        self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
-
+        self.wait_cycles += address_cycles + modify_cycles;
         Ok((value, result))
     }
 

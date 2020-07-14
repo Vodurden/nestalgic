@@ -1,10 +1,10 @@
 use std::convert::TryFrom;
 
-use super::{Address, Result};
+use super::{Address, BytesUsed, CyclesTaken, Result};
 use super::bus::Bus;
 use super::error::Error;
 use super::opcode::Opcode;
-use super::addressing_mode::AddressingMode;
+use super::addressing_mode::{AddressingMode, Addressing};
 
 /// An instruction is a fully realized 6502 instruction including the `Opcode` (`LDA`, `STX`, etc...), the
 /// `AddressingMode` of the instruction and the target `Address` of the operation.
@@ -13,9 +13,8 @@ use super::addressing_mode::AddressingMode;
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct Instruction {
     pub opcode: Opcode,
-    pub addressing_mode: AddressingMode,
 
-    /// The value of `argument` depends on the `AddressingMode` of the
+    /// The value of `addressing` depends on the `AddressingMode` of the
     ///
     /// For `Implied` and `Acummulator` addressing modes a read is performed into `argument` but the value
     /// should never be used as the 6502 always discards this value.
@@ -23,7 +22,7 @@ pub struct Instruction {
     /// For the `Immediate` addressing mode `argument` is a raw 8-bit value that should be used directly.
     ///
     /// For any other addressing mode `argument` is an address that points to the address of the true value.
-    pub argument: InstructionArgument,
+    pub addressing: Addressing,
 }
 
 impl Instruction {
@@ -38,23 +37,33 @@ impl Instruction {
     /// For most operations bytes_read and bytes_used will be the same. The exceptions are
     /// `AddressingMode::Implied` and `AddressingMode::Accumulator` where the 6502 reads
     /// 1 byte but uses 0
-    pub fn try_from_bus(start: Address, bus: &impl Bus) -> Result<(Instruction, u16, u16)> {
-        let (signature, signature_bytes_read) = InstructionSignature::try_from_bus(start, bus)?;
-        let (argument, argument_bytes_read, argument_bytes_used) = InstructionArgument::from_bus(
-            signature.addressing_mode,
-            start + signature_bytes_read,
+    pub fn try_from_bus(start: Address, bus: &impl Bus) -> Result<(Instruction, CyclesTaken, BytesUsed)> {
+        let (signature, signature_cycles_taken, signature_bytes_used) = InstructionSignature::try_from_bus(start, bus)?;
+        let (addressing, addressing_cycles_taken, addressing_bytes_used) = signature.addressing_mode.read_addressing(
+            start + signature_bytes_used,
             bus
         );
 
         let instruction = Instruction {
             opcode: signature.opcode,
-            addressing_mode: signature.addressing_mode,
-            argument
+            addressing: addressing,
         };
-        let bytes_read = signature_bytes_read + argument_bytes_read;
-        let bytes_used = signature_bytes_read + argument_bytes_used;
 
-        Ok((instruction, bytes_read, bytes_used))
+        // let (argument, argument_bytes_read, argument_bytes_used) = InstructionArgument::from_bus(
+        //     signature.addressing_mode,
+        //     start + signature_bytes_read,
+        //     bus
+        // );
+
+        // let instruction = Instruction {
+        //     opcode: signature.opcode,
+        //     addressing_mode: signature.addressing_mode,
+        //     argument
+        // };
+        let cycles_taken = signature_cycles_taken + addressing_cycles_taken;
+        let bytes_used = signature_bytes_used + addressing_bytes_used;
+
+        Ok((instruction, cycles_taken, bytes_used))
     }
 }
 
@@ -180,11 +189,11 @@ impl InstructionSignature {
     /// Attempt to read an `InstructionSignature` from `bus` at `address`.
     ///
     /// Returns either a failure or the `InstructionSignature` and the number of bytes read from the bus.
-    pub fn try_from_bus(address: Address, bus: &impl Bus) -> Result<(InstructionSignature, u16)> {
+    pub fn try_from_bus(address: Address, bus: &impl Bus) -> Result<(InstructionSignature, CyclesTaken, BytesUsed)> {
         let byte = bus.read_u8(address);
         let instruction_signature = InstructionSignature::try_from(byte)?;
 
-        Ok((instruction_signature, 1))
+        Ok((instruction_signature, 1, 1))
     }
 }
 
