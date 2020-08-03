@@ -22,6 +22,8 @@ pkgs.mkShell {
 
   buildInputs = with pkgs; [
     xlibs.libX11
+
+    graphviz
   ];
 
   APPEND_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [

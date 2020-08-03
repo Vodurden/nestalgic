@@ -1,10 +1,10 @@
 use std::fmt;
 
 use super::{Address, BytesUsed, CyclesTaken, Result};
-use super::{MOS6502, Register};
+use super::MOS6502;
+use super::addressable::{Addressable, AddressableTarget};
 use super::bus::Bus;
 use super::error::Error;
-use super::status::StatusFlag;
 
 /// `AddressingMode` is combined with `Opcode` to decide _where_ the arguments for an opcode should be sourced from.
 ///
@@ -100,16 +100,6 @@ pub enum Addressing {
     AbsoluteY(Address),
 }
 
-/// An `Adderssable` is a fully realized `Addressing` that can be used to read, write and modify registers and memory
-/// targeted by an `Addressing`
-///
-/// An addressing can be used to read, modify and write across all values targetable by `AdressingMode` (Memory, Accumulator, Immediate)
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum Addressable {
-    Accumulator,
-    Immediate(u8),
-    Memory(u16),
-}
 
 impl fmt::Display for AddressingMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -118,12 +108,6 @@ impl fmt::Display for AddressingMode {
 }
 
 impl fmt::Display for Addressing {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl fmt::Display for Addressable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -207,51 +191,83 @@ impl AddressingMode {
 }
 
 impl Addressing {
-    pub fn target<B: Bus>(&self, cpu: &MOS6502<B>, force_page_boundary_check: bool) -> Result<(Addressable, CyclesTaken)> {
+    pub fn read_addressable<B: Bus>(self, cpu: &MOS6502<B>) -> Result<(Addressable, CyclesTaken)> {
         match self {
-            Addressing::Implied => Err(Error::InvalidTargetAddressAttempt(*self)),
-            Addressing::Accumulator => Addressing::target_accumulator(),
-            Addressing::Immediate(value) => Addressing::target_immediate(*value),
-            Addressing::ZeroPage(address) => Addressing::target_zero_page(*address),
-            Addressing::ZeroPageX(address) => Addressing::target_zero_page_indexed(cpu, *address, cpu.x),
-            Addressing::ZeroPageY(address) => Addressing::target_zero_page_indexed(cpu, *address, cpu.y),
-            Addressing::Relative(offset) => Addressing::target_relative(cpu, *offset),
-            Addressing::IndexedIndirect(indexed_address) => Addressing::target_indexed_indirect(cpu, *indexed_address),
-            Addressing::IndirectIndexed(indexed_address) => Addressing::target_indirect_indexed(cpu, *indexed_address, force_page_boundary_check),
-            Addressing::Indirect(target_address) => Addressing::target_indirect(cpu, *target_address),
-            Addressing::Absolute(address) => Addressing::target_absolute(*address),
-            Addressing::AbsoluteX(base_address) => Addressing::target_absolute_indexed(*base_address, cpu.x, force_page_boundary_check),
-            Addressing::AbsoluteY(base_address) => Addressing::target_absolute_indexed(*base_address, cpu.y, force_page_boundary_check),
+            Addressing::Implied => Err(Error::InvalidTargetAddressAttempt(self)),
+            Addressing::Accumulator => self.target_accumulator(),
+            Addressing::Immediate(value) => self.target_immediate(value),
+            Addressing::ZeroPage(address) => self.target_zero_page(address),
+            Addressing::ZeroPageX(address) => self.target_zero_page_indexed(cpu, address, cpu.x),
+            Addressing::ZeroPageY(address) => self.target_zero_page_indexed(cpu, address, cpu.y),
+            Addressing::Relative(offset) => self.target_relative(cpu, offset),
+            Addressing::IndexedIndirect(indexed_address) => self.target_indexed_indirect(cpu, indexed_address),
+            Addressing::IndirectIndexed(indexed_address) => self.target_indirect_indexed(cpu, indexed_address),
+            Addressing::Indirect(target_address) => self.target_indirect(cpu, target_address),
+            Addressing::Absolute(address) => self.target_absolute(address),
+            Addressing::AbsoluteX(base_address) => self.target_absolute_indexed(base_address, cpu.x),
+            Addressing::AbsoluteY(base_address) => self.target_absolute_indexed(base_address, cpu.y),
         }
     }
 
-    fn target_accumulator() -> Result<(Addressable, CyclesTaken)> {
-        Ok((Addressable::Accumulator, 0))
+    fn target_accumulator(self) -> Result<(Addressable, CyclesTaken)> {
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Accumulator,
+            page_boundary_crossed: false,
+        };
+
+        Ok((addressable, 0))
     }
 
-    fn target_immediate(value: u8) -> Result<(Addressable, CyclesTaken)> {
-        Ok((Addressable::Immediate(value), 0))
+    fn target_immediate(self, value: u8) -> Result<(Addressable, CyclesTaken)> {
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Immediate(value),
+            page_boundary_crossed: false,
+        };
+
+        Ok((addressable, 0))
     }
 
-    fn target_zero_page(zero_page_address: u8) -> Result<(Addressable, CyclesTaken)> {
-        Ok((Addressable::Memory(zero_page_address as u16), 0))
+    fn target_zero_page(self, zero_page_address: u8) -> Result<(Addressable, CyclesTaken)> {
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Memory(zero_page_address as u16),
+            page_boundary_crossed: false,
+        };
+
+        Ok((addressable, 0))
     }
 
-    fn target_zero_page_indexed<B: Bus>(cpu: &MOS6502<B>, address: u8, register: u8) -> Result<(Addressable, CyclesTaken)> {
+    fn target_zero_page_indexed<B: Bus>(self, cpu: &MOS6502<B>, address: u8, register: u8) -> Result<(Addressable, CyclesTaken)> {
         // The 6502 does a dummy read on zero page indexed that it throws away. +1 Cycle
         let _ = cpu.bus.read_u8(address as u16);
         let address = address.wrapping_add(register);
+        let cycles_taken = 1;
 
-        Ok((Addressable::Memory(address as u16), 1))
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Memory(address as u16),
+            page_boundary_crossed: false,
+        };
+
+        Ok((addressable, cycles_taken))
     }
 
-    fn target_relative<B>(cpu: &MOS6502<B>, offset: u8) -> Result<(Addressable, CyclesTaken)> {
+    fn target_relative<B>(self, cpu: &MOS6502<B>, offset: u8) -> Result<(Addressable, CyclesTaken)> {
         // TODO: +2 cycles if page boundary crossed
         let target = cpu.pc.wrapping_add(offset as u16);
-        Ok((Addressable::Memory(target), 0))
+
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Memory(target),
+            page_boundary_crossed: false,
+        };
+
+        Ok((addressable, 0))
     }
 
-    fn target_indexed_indirect<B: Bus>(cpu: &MOS6502<B>, indexed_address: u8) -> Result<(Addressable, CyclesTaken)> {
+    fn target_indexed_indirect<B: Bus>(self, cpu: &MOS6502<B>, indexed_address: u8) -> Result<(Addressable, CyclesTaken)> {
         // Adding `x` to the address costs 1 cycle on the 6502.
         let target_address_lo = indexed_address.wrapping_add(cpu.x);
         let mut cycles_taken = 1;
@@ -269,10 +285,16 @@ impl Addressing {
         // the whole address space
         let target_address = u16::from_le_bytes([target_lo, target_hi]);
 
-        Ok((Addressable::Memory(target_address), cycles_taken))
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Memory(target_address),
+            page_boundary_crossed: false,
+        };
+
+        Ok((addressable, cycles_taken))
     }
 
-    fn target_indirect_indexed<B: Bus>(cpu: &MOS6502<B>, indexed_address: u8, force_page_boundary_check: bool) -> Result<(Addressable, CyclesTaken)> {
+    fn target_indirect_indexed<B: Bus>(self, cpu: &MOS6502<B>, indexed_address: u8) -> Result<(Addressable, CyclesTaken)> {
         let target_address_lo = indexed_address;
         let target_lo = cpu.bus.read_u8(target_address_lo as u16);
         let mut cycles_taken = 1;
@@ -288,17 +310,21 @@ impl Addressing {
 
         // +1 cycle if page boundary is crossed or if we are forcing a page
         // boundary check (which usually occurs as part of a write)
+        // TODO: Move to Addressable t
         let (_, page_boundary_crossed) = target_lo.overflowing_add(cpu.y);
-        if page_boundary_crossed || force_page_boundary_check {
-            cycles_taken += 1;
-        }
 
         let adjusted_address = target_address.wrapping_add(cpu.y as u16);
 
-        Ok((Addressable::Memory(adjusted_address), cycles_taken))
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Memory(adjusted_address),
+            page_boundary_crossed,
+        };
+
+        Ok((addressable, cycles_taken))
     }
 
-    fn target_indirect<B: Bus>(cpu: &MOS6502<B>, target_address: Address) -> Result<(Addressable, CyclesTaken)> {
+    fn target_indirect<B: Bus>(self, cpu: &MOS6502<B>, target_address: Address) -> Result<(Addressable, CyclesTaken)> {
         let address_lo = cpu.bus.read_u8(target_address);
         let mut cycles_taken = 1;
 
@@ -316,79 +342,37 @@ impl Addressing {
 
         let address = u16::from_le_bytes([address_lo, address_hi]);
 
-        Ok((Addressable::Memory(address), cycles_taken))
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Memory(address),
+            page_boundary_crossed: false,
+        };
+
+        Ok((addressable, cycles_taken))
     }
 
-    fn target_absolute(address: u16) -> Result<(Addressable, CyclesTaken)> {
-        Ok((Addressable::Memory(address), 0))
+    fn target_absolute(self, address: u16) -> Result<(Addressable, CyclesTaken)> {
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Memory(address),
+            page_boundary_crossed: false,
+        };
+
+        Ok((addressable, 0))
     }
 
-    fn target_absolute_indexed(base_address: u16, index_register: u8, force_page_boundary_check: bool) -> Result<(Addressable, CyclesTaken)> {
-        let mut cycles_taken = 0;
-
+    fn target_absolute_indexed(self, base_address: u16, index_register: u8) -> Result<(Addressable, CyclesTaken)> {
         // +1 cycle if page boundary crossed or if we are forcing a page boundary check
         // (which usually occurs as part of a write)
         let (_, page_boundary_crossed) = (base_address as u8).overflowing_add(index_register);
-        if page_boundary_crossed || force_page_boundary_check {
-            cycles_taken += 1;
-        }
-
         let address = base_address.wrapping_add(index_register as u16);
 
-        Ok((Addressable::Memory(address), cycles_taken))
-    }
-}
+        let addressable = Addressable {
+            addressing: self,
+            target: AddressableTarget::Memory(address),
+            page_boundary_crossed,
+        };
 
-impl Addressable {
-    pub fn address(&self) -> Result<Address> {
-        match self {
-            Addressable::Accumulator => Err(Error::InvalidAddressAttempt(*self)),
-            Addressable::Immediate(_) => Err(Error::InvalidAddressAttempt(*self)),
-            Addressable::Memory(address) => Ok(*address),
-        }
-    }
-
-    pub fn read<B: Bus>(&self, cpu: &MOS6502<B>) -> (u8, CyclesTaken) {
-        match self {
-            Addressable::Accumulator => (cpu.a, 0),
-            Addressable::Immediate(value) => (*value, 0),
-            Addressable::Memory(address) => {
-                let value = cpu.bus.read_u8(*address);
-                (value, 1)
-            }
-        }
-    }
-
-    pub fn try_write<B: Bus>(&self, cpu: &mut MOS6502<B>, value: u8) -> Result<CyclesTaken> {
-        match *self {
-            Addressable::Immediate(_) => Err(Error::InvalidAddressableWrite(*self, value)),
-            Addressable::Accumulator => {
-                cpu.write_register(Register::A, value);
-                Ok(0)
-            }
-            Addressable::Memory(address) => {
-                cpu.bus.write_u8(address, value);
-                Ok(1)
-            }
-        }
-    }
-
-    pub fn try_modify<B: Bus>(&self, cpu: &mut MOS6502<B>, f: impl FnOnce(u8) -> u8) -> Result<(u8, u8, CyclesTaken)>
-    {
-        let (value, read_cycles) = self.read(cpu);
-        let result = f(value);
-        let mut write_cycles = self.try_write(cpu, result)?;
-
-        // For non-accumulator modify instructions the 6502 writes the result twice, incurring an extra cycle cost
-        if *self != Addressable::Accumulator {
-            write_cycles += 1;
-        }
-
-        // When doing a `modify` we affect `Zero` and `Negative` even when
-        // writing to memory
-        cpu.p.set(StatusFlag::Zero, result == 0);
-        cpu.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
-
-        Ok((value, result, read_cycles + write_cycles))
+        Ok((addressable, 0))
     }
 }

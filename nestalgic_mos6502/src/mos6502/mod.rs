@@ -1,4 +1,5 @@
 mod addressing_mode;
+mod addressable;
 mod bus;
 mod opcode;
 mod instruction;
@@ -6,8 +7,7 @@ mod error;
 mod register;
 mod status;
 
-use addressing_mode::AddressingMode;
-use instruction::{Instruction, InstructionArgument};
+use instruction::Instruction;
 use opcode::Opcode;
 use error::Error;
 use register::Register;
@@ -379,35 +379,41 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<Address> {
-        let (addressable, address_cycles) = instruction.addressing.target(&self, false)?;
-        let address = addressable.address()?;
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+        self.wait_cycles += read_addressable_cycles;
 
-        self.wait_cycles += address_cycles;
+        let address = addressable.address()?;
         Ok(address)
     }
 
     fn try_read_instruction_value(&mut self, instruction: Instruction) -> Result<u8> {
-        let (addressable, address_cycles) = instruction.addressing.target(&self, false)?;
-        let (value, read_cycles) = addressable.read(self);
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+        self.wait_cycles += read_addressable_cycles;
 
-        self.wait_cycles += address_cycles + read_cycles;
+        let (value, read_cycles) = addressable.read(self);
+        self.wait_cycles += read_cycles;
+
         Ok(value)
     }
 
     fn try_write_instruction_value(&mut self, instruction: Instruction, value: u8) -> Result<()> {
-        let (addressable, address_cycles) = instruction.addressing.target(&self, true)?;
-        let write_cycles = addressable.try_write(self, value)?;
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+        self.wait_cycles += read_addressable_cycles;
 
-        self.wait_cycles += address_cycles + write_cycles;
+        let write_cycles = addressable.try_write(self, value)?;
+        self.wait_cycles += write_cycles;
+
         Ok(())
     }
 
     fn try_modify_instruction_value(&mut self, instruction: Instruction, f: impl FnOnce(u8) -> u8) -> Result<(u8, u8)> {
-        let (addressable, address_cycles) = instruction.addressing.target(&self, false)?;
-        let (value, result, modify_cycles) = addressable.try_modify(self, f)?;
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+        self.wait_cycles += read_addressable_cycles;
 
-        self.wait_cycles += address_cycles + modify_cycles;
-        Ok((value, result))
+        let (input, output, modify_cycles) = addressable.try_modify(self, f)?;
+        self.wait_cycles += modify_cycles;
+
+        Ok((input, output))
     }
 
     fn op_load(&mut self, register: Register, instruction: Instruction) -> Result<()> {
@@ -662,7 +668,7 @@ mod tests {
     #[test]
     pub fn op_store_zero_page() {
         let program = vec![
-            0xA9, 0xBE,  // LDA #$BB
+            0xA9, 0xBE,  // LDA #$BE
             0xA2, 0x40,  // LDX #$40
             0xA0, 0xFF,  // LDY #$FF
             0x85, 0x00,  // STA $00
