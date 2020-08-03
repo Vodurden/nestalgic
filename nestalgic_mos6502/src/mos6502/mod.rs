@@ -204,9 +204,11 @@ impl<B: Bus> MOS6502<B> {
             Opcode::LDA => self.op_load(Register::A, instruction),
             Opcode::LDX => self.op_load(Register::X, instruction),
             Opcode::LDY => self.op_load(Register::Y, instruction),
+            Opcode::LAX => self.op_lax(instruction),
             Opcode::STA => self.op_store(Register::A, instruction),
             Opcode::STX => self.op_store(Register::X, instruction),
             Opcode::STY => self.op_store(Register::Y, instruction),
+            Opcode::SAX => self.op_sax(instruction),
             Opcode::TAX => self.op_transfer(Register::A, Register::X),
             Opcode::TAY => self.op_transfer(Register::A, Register::Y),
             Opcode::TXA => self.op_transfer(Register::X, Register::A),
@@ -237,9 +239,11 @@ impl<B: Bus> MOS6502<B> {
             Opcode::INC => self.try_modify_instruction_value(instruction, |v| v.wrapping_add(1)).map(|_| ()),
             Opcode::INX => Ok(self.modify_register(Register::X, |x| x.wrapping_add(1))),
             Opcode::INY => Ok(self.modify_register(Register::Y, |y| y.wrapping_add(1))),
+            Opcode::ISC => self.op_increment_subtract(instruction),
             Opcode::DEC => self.try_modify_instruction_value(instruction, |v| v.wrapping_sub(1)).map(|_| ()),
             Opcode::DEX => Ok(self.modify_register(Register::X, |x| x.wrapping_sub(1))),
             Opcode::DEY => Ok(self.modify_register(Register::Y, |y| y.wrapping_sub(1))),
+            Opcode::DCP => self.op_decrement_compare(instruction),
 
             // Shifts
             Opcode::ASL => self.op_shift_left(instruction),
@@ -272,10 +276,9 @@ impl<B: Bus> MOS6502<B> {
             Opcode::SEI => Ok(self.p.set(StatusFlag::InterruptDisable, true)),
 
             // System Functions
-            Opcode::NOP => Ok(()),
+            Opcode::NOP => self.op_nop(instruction),
             Opcode::RTI => self.op_return_from_interrupt(),
-
-            opcode => panic!("Opcode {} not yet implemented", opcode),
+            Opcode::BRK => panic!("BRK not yet implemented"),
         }
     }
 
@@ -416,14 +419,41 @@ impl<B: Bus> MOS6502<B> {
         Ok((input, output))
     }
 
+    fn op_nop(&mut self, instruction: Instruction) -> Result<()> {
+        // Nop is identical to any other read instruction except it throws away the value
+        //
+        // We ignore errors with reading during NOP since the "legal" NOP has an implied addressing
+        // mode which usually results in an invalid read
+        let _ = self.try_read_instruction_value(instruction);
+
+        Ok(())
+    }
+
     fn op_load(&mut self, register: Register, instruction: Instruction) -> Result<()> {
         let value = self.try_read_instruction_value(instruction)?;
         self.write_register(register, value);
         Ok(())
     }
 
+    /// Special variant of `op_load` that loads into `A` and `X`
+    ///
+    /// Takes the same amount of time as a single `op_load`
+    fn op_lax(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(instruction)?;
+        self.write_register(Register::A, value);
+        self.write_register(Register::X, value);
+        Ok(())
+    }
+
     fn op_store(&mut self, register: Register, instruction: Instruction) -> Result<()> {
         let value = self.read_register(register);
+        self.try_write_instruction_value(instruction, value)?;
+        Ok(())
+    }
+
+    /// Special variant of `op_store` that stores `A & X` into the target address
+    fn op_sax(&mut self, instruction: Instruction) -> Result<()> {
+        let value = self.a & self.x;
         self.try_write_instruction_value(instruction, value)?;
         Ok(())
     }
@@ -552,8 +582,20 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn op_sub(&mut self, instruction: Instruction) -> Result<()> {
-        let lhs = self.a;
         let rhs = self.try_read_instruction_value(instruction)?;
+        self.subtract(Register::A, rhs)
+    }
+
+    /// Increment the addressed memory then subtract the result from `a`
+    ///
+    /// This is an unofficial opcode
+    fn op_increment_subtract(&mut self, instruction: Instruction) -> Result<()> {
+        let (_, output) = self.try_modify_instruction_value(instruction, |v| v.wrapping_add(1))?;
+        self.subtract(Register::A, output)
+    }
+
+    fn subtract(&mut self, lhs_register: Register, rhs: u8) -> Result<()> {
+        let lhs = self.read_register(lhs_register);
         let carry: u8 = self.p.get(StatusFlag::Carry).into();
 
         let (result, result_overflow) = self.a.overflowing_sub(rhs);
@@ -573,7 +615,7 @@ impl<B: Bus> MOS6502<B> {
         let overflow = (lhs_sign != rhs_sign) && (lhs_sign != result_sign);
         self.p.set(StatusFlag::Overflow, overflow);
 
-        self.write_register(Register::A, result);
+        self.write_register(lhs_register, result);
 
         Ok(())
     }
@@ -588,6 +630,22 @@ impl<B: Bus> MOS6502<B> {
         self.p.set(StatusFlag::Carry, register >= value);
         self.p.set(StatusFlag::Zero, result == 0);
         self.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
+        Ok(())
+    }
+
+    /// Decrements the addressed memory then compares the result with `a`
+    ///
+    /// This is an unofficial opcode
+    fn op_decrement_compare(&mut self, instruction: Instruction) -> Result<()> {
+        let (_, output) = self.try_modify_instruction_value(instruction, |v| v.wrapping_sub(1))?;
+
+        // Compare can be thought of a subtraction that doesn't affect the register. I.e. these
+        // flags are the result of (register - value).
+        let comparison = self.a.wrapping_sub(output);
+        self.p.set(StatusFlag::Carry, self.a >= comparison);
+        self.p.set(StatusFlag::Zero, comparison == 0);
+        self.p.set(StatusFlag::Negative, comparison & 0b1000_0000 > 0);
+
         Ok(())
     }
 

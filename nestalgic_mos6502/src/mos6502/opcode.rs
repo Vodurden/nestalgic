@@ -15,6 +15,11 @@ pub enum Opcode {
     /// Load a byte of memory into `Y`
     LDY,
 
+    /// Load a byte of memory into `A` and `X`
+    ///
+    /// This is an "Unofficial" opcode but shows up in some binaries regardless
+    LAX,
+
     /// Store the contents of `A` into memory
     STA,
 
@@ -23,6 +28,11 @@ pub enum Opcode {
 
     /// Store the contents of `Y` into memory
     STY,
+
+    /// Load `A & X` into a byte of memory
+    ///
+    /// This is an "Unofficial" opcode but shows up in some binaries regardless
+    SAX,
 
     /// Copy the contents of `A` into `X`
     TAX,
@@ -113,6 +123,11 @@ pub enum Opcode {
     /// Increment `Y`. Add 1 to `Y`
     INY,
 
+    /// Increment Memory then subtract the result from `A`
+    ///
+    /// This is an "Unofficial" opcode but shows up in some binaries regardless
+    ISC,
+
     /// Decrement Memory. Subtract 1 to the target memory location
     DEC,
 
@@ -121,6 +136,11 @@ pub enum Opcode {
 
     /// Decrement `Y`. Subtract 1 from `Y`
     DEY,
+
+    /// Decrement Memory the compare the results with `A`
+    ///
+    /// This is an "Unofficial" opcode but shows up in some binaries regardless
+    DCP,
 
     // =====================================================================================
     // ======================================= Shifts ======================================
