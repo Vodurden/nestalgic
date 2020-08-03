@@ -18,6 +18,9 @@ pub enum Error {
     #[error("Invalid attempt to write to unwritable addressable: {0:?} = {1:?}")]
     InvalidAddressableWrite(AddressableTarget, u8),
 
+    #[error("Invalid attempt to modify to unmodifiable addressable: {0:?}")]
+    InvalidAddressableModify(AddressableTarget),
+
     #[error("Invalid attempt to read using invalid addressing mode with instruction: {0:?}")]
     InvalidReadValue(Instruction),
 

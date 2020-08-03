@@ -78,32 +78,60 @@ impl Addressable {
         }
     }
 
-    pub fn try_modify<B: Bus>(&self, cpu: &mut MOS6502<B>, f: impl FnOnce(u8) -> u8) -> Result<(u8, u8, CyclesTaken)>
-    {
-        let (value, mut read_cycles) = self.read(cpu);
+    pub fn try_modify<B: Bus>(&self, cpu: &mut MOS6502<B>, f: impl FnOnce(u8) -> u8) -> Result<(u8, u8, CyclesTaken)> {
+        // At first glance you might think we can write this function in terms of `read` and `try_write`.
+        //
+        // Think again!
+        //
+        // The cycle behavior of the 6502 has subtle differences when reading/writing vs. modifying. I.e:
+        //
+        // - When reading we need to add 1 cycle if we cross a page boundary. `modify` should always do this
+        // - When writing some addressing modes do an extra `read`. The same addressing modes do not do the extra
+        //   read when modifying
+        //
+        // Let's save ourselves the pain and just implement modify directly.
+        let (input, output, modify_cycles) = match self.target {
+            AddressableTarget::Immediate(_) => Err(Error::InvalidAddressableModify(self.target)),
 
-        // For `AbsoluteX`, `AbsoluteY` and `IndirectIndexed` the 6502 reads the value twice before performing the
-        // operations, incurring an extra cycle cost
-        match self.addressing {
-            Addressing::AbsoluteX(_) => read_cycles += 1,
-            Addressing::AbsoluteY(_) => read_cycles += 1,
-            Addressing::IndirectIndexed(_) => read_cycles += 1,
-            _ => {},
-        };
+            AddressableTarget::Accumulator => {
+                let input = cpu.a;
+                let output = f(cpu.a);
+                cpu.write_register(Register::A, output);
 
-        let result = f(value);
-        let mut write_cycles = self.try_write(cpu, result)?;
+                Ok((input, output, 0))
+            },
 
-        // For non-accumulator modify instructions the 6502 writes the result twice, incurring an extra cycle cost
-        if self.target != AddressableTarget::Accumulator {
-            write_cycles += 1;
-        }
+            AddressableTarget::Memory(address) => {
+                let input = cpu.bus.read_u8(address);
+                let mut read_cycles = 1; // read bus: +1 cycle
+
+                // For `AbsoluteX`, `AbsoluteY` and `IndirectIndexed` the 6502 reads the value twice before
+                // performing the operations, incurring an extra cycle cost
+                match self.addressing {
+                    Addressing::AbsoluteX(_) => read_cycles += 1,
+                    Addressing::AbsoluteY(_) => read_cycles += 1,
+                    Addressing::IndirectIndexed(_) => read_cycles += 1,
+                    _ => {},
+                };
+
+                let output = f(input);
+
+                cpu.bus.write_u8(address, output);
+                let mut write_cycles = 1; // write bus: +1 cycle
+
+                // The 6502 actually writes the result twice when modifying, incurring an extra cycle
+                cpu.bus.write_u8(address, output);
+                write_cycles += 1; // write bus: +1 cycle
+
+                Ok((input, output, read_cycles + write_cycles))
+            },
+        }?;
 
         // When doing a `modify` we affect `Zero` and `Negative` even when
         // writing to memory
-        cpu.p.set(StatusFlag::Zero, result == 0);
-        cpu.p.set(StatusFlag::Negative, result & 0b1000_0000 > 0);
+        cpu.p.set(StatusFlag::Zero, output == 0);
+        cpu.p.set(StatusFlag::Negative, output & 0b1000_0000 > 0);
 
-        Ok((value, result, read_cycles + write_cycles))
+        Ok((input, output, modify_cycles))
     }
 }
