@@ -98,11 +98,11 @@ static INSTRUCTION_SIGNATURES: [Option<InstructionSignature>; 256] = [
     /*0x00*/ Some(InstructionSignature::new(Opcode::BRK, AddressingMode::Implied)),
     /*0x01*/ Some(InstructionSignature::new(Opcode::ORA, AddressingMode::IndexedIndirect)),
     /*0x02*/ None,
-    /*0x03*/ None,
+    /*0x03*/ Some(InstructionSignature::new(Opcode::SLO, AddressingMode::IndexedIndirect)), // Unofficial
     /*0x04*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::ZeroPage)), // Unofficial
     /*0x05*/ Some(InstructionSignature::new(Opcode::ORA, AddressingMode::ZeroPage)),
     /*0x06*/ Some(InstructionSignature::new(Opcode::ASL, AddressingMode::ZeroPage)),
-    /*0x07*/ None,
+    /*0x07*/ Some(InstructionSignature::new(Opcode::SLO, AddressingMode::ZeroPage)), // Unofficial
     /*0x08*/ Some(InstructionSignature::new(Opcode::PHP, AddressingMode::Implied)),
     /*0x09*/ Some(InstructionSignature::new(Opcode::ORA, AddressingMode::Immediate)),
     /*0x0A*/ Some(InstructionSignature::new(Opcode::ASL, AddressingMode::Accumulator)),
@@ -110,31 +110,31 @@ static INSTRUCTION_SIGNATURES: [Option<InstructionSignature>; 256] = [
     /*0x0C*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::Absolute)), // Unofficial
     /*0x0D*/ Some(InstructionSignature::new(Opcode::ORA, AddressingMode::Absolute)),
     /*0x0E*/ Some(InstructionSignature::new(Opcode::ASL, AddressingMode::Absolute)),
-    /*0x0F*/ None,
+    /*0x0F*/ Some(InstructionSignature::new(Opcode::SLO, AddressingMode::Absolute)), // Unofficial
     /*0x10*/ Some(InstructionSignature::new(Opcode::BPL, AddressingMode::Relative)),
     /*0x11*/ Some(InstructionSignature::new(Opcode::ORA, AddressingMode::IndirectIndexed)),
     /*0x12*/ None,
-    /*0x13*/ None,
+    /*0x13*/ Some(InstructionSignature::new(Opcode::SLO, AddressingMode::IndirectIndexed)), // Unofficial
     /*0x14*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::ZeroPageX)), // Unofficial
     /*0x15*/ Some(InstructionSignature::new(Opcode::ORA, AddressingMode::ZeroPageX)),
     /*0x16*/ Some(InstructionSignature::new(Opcode::ASL, AddressingMode::ZeroPageX)),
-    /*0x17*/ None,
+    /*0x17*/ Some(InstructionSignature::new(Opcode::SLO, AddressingMode::ZeroPageX)), // Unofficial
     /*0x18*/ Some(InstructionSignature::new(Opcode::CLC, AddressingMode::Implied)),
     /*0x19*/ Some(InstructionSignature::new(Opcode::ORA, AddressingMode::AbsoluteY)),
     /*0x1A*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::Implied)), // Unofficial
-    /*0x1B*/ None,
+    /*0x1B*/ Some(InstructionSignature::new(Opcode::SLO, AddressingMode::AbsoluteY)), // Unofficial
     /*0x1C*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::AbsoluteX)), // Unofficial
     /*0x1D*/ Some(InstructionSignature::new(Opcode::ORA, AddressingMode::AbsoluteX)),
     /*0x1E*/ Some(InstructionSignature::new(Opcode::ASL, AddressingMode::AbsoluteX)),
-    /*0x1F*/ None,
+    /*0x1F*/ Some(InstructionSignature::new(Opcode::SLO, AddressingMode::AbsoluteX)), // Unofficial
     /*0x20*/ Some(InstructionSignature::new(Opcode::JSR, AddressingMode::Absolute)),
     /*0x21*/ Some(InstructionSignature::new(Opcode::AND, AddressingMode::IndexedIndirect)),
     /*0x22*/ None,
-    /*0x23*/ None,
+    /*0x23*/ Some(InstructionSignature::new(Opcode::RLA, AddressingMode::IndexedIndirect)), // Unofficial
     /*0x24*/ Some(InstructionSignature::new(Opcode::BIT, AddressingMode::ZeroPage)),
     /*0x25*/ Some(InstructionSignature::new(Opcode::AND, AddressingMode::ZeroPage)),
     /*0x26*/ Some(InstructionSignature::new(Opcode::ROL, AddressingMode::ZeroPage)),
-    /*0x27*/ None,
+    /*0x27*/ Some(InstructionSignature::new(Opcode::RLA, AddressingMode::ZeroPage)), // Unofficial
     /*0x28*/ Some(InstructionSignature::new(Opcode::PLP, AddressingMode::Implied)),
     /*0x29*/ Some(InstructionSignature::new(Opcode::AND, AddressingMode::Immediate)),
     /*0x2A*/ Some(InstructionSignature::new(Opcode::ROL, AddressingMode::Accumulator)),
@@ -142,31 +142,31 @@ static INSTRUCTION_SIGNATURES: [Option<InstructionSignature>; 256] = [
     /*0x2C*/ Some(InstructionSignature::new(Opcode::BIT, AddressingMode::Absolute)),
     /*0x2D*/ Some(InstructionSignature::new(Opcode::AND, AddressingMode::Absolute)),
     /*0x2E*/ Some(InstructionSignature::new(Opcode::ROL, AddressingMode::Absolute)),
-    /*0x2F*/ None,
+    /*0x2F*/ Some(InstructionSignature::new(Opcode::RLA, AddressingMode::Absolute)), // Unofficial
     /*0x30*/ Some(InstructionSignature::new(Opcode::BMI, AddressingMode::Relative)),
     /*0x31*/ Some(InstructionSignature::new(Opcode::AND, AddressingMode::IndirectIndexed)),
     /*0x32*/ None,
-    /*0x33*/ None,
+    /*0x33*/ Some(InstructionSignature::new(Opcode::RLA, AddressingMode::IndirectIndexed)), // Unofficial
     /*0x34*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::ZeroPageX)), // Unofficial
     /*0x35*/ Some(InstructionSignature::new(Opcode::AND, AddressingMode::ZeroPageX)),
     /*0x36*/ Some(InstructionSignature::new(Opcode::ROL, AddressingMode::ZeroPageX)),
-    /*0x37*/ None,
+    /*0x37*/ Some(InstructionSignature::new(Opcode::RLA, AddressingMode::ZeroPageX)), // Unofficial
     /*0x38*/ Some(InstructionSignature::new(Opcode::SEC, AddressingMode::Implied)),
     /*0x39*/ Some(InstructionSignature::new(Opcode::AND, AddressingMode::AbsoluteY)),
     /*0x3A*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::Implied)), // Unofficial
-    /*0x3B*/ None,
+    /*0x3B*/ Some(InstructionSignature::new(Opcode::RLA, AddressingMode::AbsoluteY)), // Unofficial
     /*0x3C*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::AbsoluteX)), // Unofficial
     /*0x3D*/ Some(InstructionSignature::new(Opcode::AND, AddressingMode::AbsoluteX)),
     /*0x3E*/ Some(InstructionSignature::new(Opcode::ROL, AddressingMode::AbsoluteX)),
-    /*0x3F*/ None,
+    /*0x3F*/ Some(InstructionSignature::new(Opcode::RLA, AddressingMode::AbsoluteX)), // Unofficial
     /*0x40*/ Some(InstructionSignature::new(Opcode::RTI, AddressingMode::Implied)),
     /*0x41*/ Some(InstructionSignature::new(Opcode::EOR, AddressingMode::IndexedIndirect)),
     /*0x42*/ None,
-    /*0x43*/ None,
+    /*0x43*/ Some(InstructionSignature::new(Opcode::SRE, AddressingMode::IndexedIndirect)), // Unofficial
     /*0x44*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::ZeroPage)), // Unofficial
     /*0x45*/ Some(InstructionSignature::new(Opcode::EOR, AddressingMode::ZeroPage)),
     /*0x46*/ Some(InstructionSignature::new(Opcode::LSR, AddressingMode::ZeroPage)),
-    /*0x47*/ None,
+    /*0x47*/ Some(InstructionSignature::new(Opcode::SRE, AddressingMode::ZeroPage)), // Unofficial
     /*0x48*/ Some(InstructionSignature::new(Opcode::PHA, AddressingMode::Implied)),
     /*0x49*/ Some(InstructionSignature::new(Opcode::EOR, AddressingMode::Immediate)),
     /*0x4A*/ Some(InstructionSignature::new(Opcode::LSR, AddressingMode::Accumulator)),
@@ -174,23 +174,23 @@ static INSTRUCTION_SIGNATURES: [Option<InstructionSignature>; 256] = [
     /*0x4C*/ Some(InstructionSignature::new(Opcode::JMP, AddressingMode::Absolute)),
     /*0x4D*/ Some(InstructionSignature::new(Opcode::EOR, AddressingMode::Absolute)),
     /*0x4E*/ Some(InstructionSignature::new(Opcode::LSR, AddressingMode::Absolute)),
-    /*0x4F*/ None,
+    /*0x4F*/ Some(InstructionSignature::new(Opcode::SRE, AddressingMode::Absolute)), // Unofficial
     /*0x50*/ Some(InstructionSignature::new(Opcode::BVC, AddressingMode::Relative)),
     /*0x51*/ Some(InstructionSignature::new(Opcode::EOR, AddressingMode::IndirectIndexed)),
     /*0x52*/ None,
-    /*0x53*/ None,
+    /*0x53*/ Some(InstructionSignature::new(Opcode::SRE, AddressingMode::IndirectIndexed)), // Unofficial
     /*0x54*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::ZeroPageX)), // Unofficial
     /*0x55*/ Some(InstructionSignature::new(Opcode::EOR, AddressingMode::ZeroPageX)),
     /*0x56*/ Some(InstructionSignature::new(Opcode::LSR, AddressingMode::ZeroPageX)),
-    /*0x57*/ None,
+    /*0x57*/ Some(InstructionSignature::new(Opcode::SRE, AddressingMode::ZeroPageX)), // Unofficial
     /*0x58*/ Some(InstructionSignature::new(Opcode::CLI, AddressingMode::Implied)),
     /*0x59*/ Some(InstructionSignature::new(Opcode::EOR, AddressingMode::AbsoluteY)),
     /*0x5A*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::Implied)), // Unofficial
-    /*0x5B*/ None,
+    /*0x5B*/ Some(InstructionSignature::new(Opcode::SRE, AddressingMode::AbsoluteY)), // Unofficial
     /*0x5C*/ Some(InstructionSignature::new(Opcode::NOP, AddressingMode::AbsoluteX)), // Unofficial
     /*0x5D*/ Some(InstructionSignature::new(Opcode::EOR, AddressingMode::AbsoluteX)),
     /*0x5E*/ Some(InstructionSignature::new(Opcode::LSR, AddressingMode::AbsoluteX)),
-    /*0x5F*/ None,
+    /*0x5F*/ Some(InstructionSignature::new(Opcode::SRE, AddressingMode::AbsoluteX)), // Unofficial
     /*0x60*/ Some(InstructionSignature::new(Opcode::RTS, AddressingMode::Implied)),
     /*0x61*/ Some(InstructionSignature::new(Opcode::ADC, AddressingMode::IndexedIndirect)),
     /*0x62*/ None,

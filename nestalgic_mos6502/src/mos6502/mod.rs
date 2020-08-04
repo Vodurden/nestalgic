@@ -246,10 +246,13 @@ impl<B: Bus> MOS6502<B> {
             Opcode::DCP => self.op_decrement_compare(instruction),
 
             // Shifts
-            Opcode::ASL => self.op_shift_left(instruction),
-            Opcode::LSR => self.op_shift_right(instruction),
-            Opcode::ROR => self.op_rotate_right(instruction),
-            Opcode::ROL => self.op_rotate_left(instruction),
+            Opcode::ASL => self.op_shift_left(instruction).map(|_| ()),
+            Opcode::LSR => self.op_shift_right(instruction).map(|_| ()),
+            Opcode::ROR => self.op_rotate_right(instruction).map(|_| ()),
+            Opcode::ROL => self.op_rotate_left(instruction).map(|_| ()),
+            Opcode::SLO => self.op_shift_left_then_or(instruction),
+            Opcode::SRE => self.op_shift_right_then_xor(instruction),
+            Opcode::RLA => self.op_rotate_right_then_and(instruction),
 
             // Jumps & Calls
             Opcode::JMP => self.op_jump(instruction),
@@ -319,7 +322,7 @@ impl<B: Bus> MOS6502<B> {
         }
     }
 
-    fn modify_register(&mut self, register: Register, f: fn(u8) -> u8) {
+    fn modify_register(&mut self, register: Register, f: impl FnOnce(u8) -> u8) {
         let value = self.read_register(register);
         let result = f(value);
         self.write_register(register, result);
@@ -525,10 +528,17 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn op_branch_if(&mut self, instruction: Instruction, condition: bool) -> Result<()> {
-        let address = self.try_read_instruction_target_address(instruction)?;
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+        self.wait_cycles += read_addressable_cycles;
+
+        let address = addressable.address()?;
         if condition {
             self.pc = address;
             self.wait_cycles += 1;
+
+            if addressable.page_boundary_crossed {
+                self.wait_cycles += 1;
+            }
         }
         Ok(())
     }
@@ -649,23 +659,35 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
-    fn op_shift_left(&mut self, instruction: Instruction) -> Result<()> {
-        let (value, _) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shl(1))?;
+    fn op_shift_left(&mut self, instruction: Instruction) -> Result<u8> {
+        let (value, result) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shl(1))?;
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
 
+        Ok(result)
+    }
+
+    fn op_shift_left_then_or(&mut self, instruction: Instruction) -> Result<()> {
+        let result = self.op_shift_left(instruction)?;
+        self.modify_register(Register::A, |a| a | result);
         Ok(())
     }
 
-    fn op_shift_right(&mut self, instruction: Instruction) -> Result<()> {
-        let (value, _) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shr(1))?;
+    fn op_shift_right(&mut self, instruction: Instruction) -> Result<u8> {
+        let (value, result) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shr(1))?;
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
 
+        Ok(result)
+    }
+
+    fn op_shift_right_then_xor(&mut self, instruction: Instruction) -> Result<()> {
+        let result = self.op_shift_right(instruction)?;
+        self.modify_register(Register::A, |a| a ^ result);
         Ok(())
     }
 
-    fn op_rotate_left(&mut self, instruction: Instruction) -> Result<()> {
+    fn op_rotate_left(&mut self, instruction: Instruction) -> Result<u8> {
         let carry = u8::from(self.p.get(StatusFlag::Carry));
-        let (value, _) = self.try_modify_instruction_value(instruction, |value| {
+        let (value, result) = self.try_modify_instruction_value(instruction, |value| {
             let result = value.wrapping_shl(1);
             let result = result | carry;
             result
@@ -673,12 +695,12 @@ impl<B: Bus> MOS6502<B> {
 
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
 
-        Ok(())
+        Ok(result)
     }
 
-    fn op_rotate_right(&mut self, instruction: Instruction) -> Result<()> {
+    fn op_rotate_right(&mut self, instruction: Instruction) -> Result<u8> {
         let carry = u8::from(self.p.get(StatusFlag::Carry)) << 7;
-        let (value, _) = self.try_modify_instruction_value(instruction, |value| {
+        let (value, result) = self.try_modify_instruction_value(instruction, |value| {
             let result = value.wrapping_shr(1);
             let result = result | carry;
             result
@@ -686,6 +708,12 @@ impl<B: Bus> MOS6502<B> {
 
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
 
+        Ok(result)
+    }
+
+    fn op_rotate_right_then_and(&mut self, instruction: Instruction) -> Result<()> {
+        let result = self.op_rotate_left(instruction)?;
+        self.modify_register(Register::A, |a| a & result);
         Ok(())
     }
 }

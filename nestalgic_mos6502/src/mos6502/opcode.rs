@@ -125,7 +125,7 @@ pub enum Opcode {
 
     /// Increment Memory then subtract the result from `A`
     ///
-    /// This is an "Unofficial" opcode but shows up in some binaries regardless
+    /// This is an unofficial opcode
     ISC,
 
     /// Decrement Memory. Subtract 1 to the target memory location
@@ -139,17 +139,53 @@ pub enum Opcode {
 
     /// Decrement Memory the compare the results with `A`
     ///
-    /// This is an "Unofficial" opcode but shows up in some binaries regardless
+    /// This is an unofficial opcode
     DCP,
 
     // =====================================================================================
     // ======================================= Shifts ======================================
     // =====================================================================================
 
+    /// Arithmetic Shift Left: Shift the targeted memory one bit to the left
+    ///
+    /// Bit 7 is placed in `Carry`
     ASL,
+
+    /// Logical Shift Right: Shift the targeted memory one bit to the right
+    ///
+    /// Bit 0 is placed in `Carry`
     LSR,
+
+    /// Rotate Left. Shift the bits of the targeted memory one place to the left.
+    ///
+    /// Bit 0 is filled with the current value of `Carry` and bit 7 becomes the new `Carry`
     ROL,
+
+    /// Rotate Right. Shift the bits of the targeted memory one place to the right.
+    ///
+    /// Bit 7 is filled with the current value of `Carry` and bit 0 becomes the new `Carry`
     ROR,
+
+    /// Shift the targeted memory one bit to the left then OR the result with `A`
+    ///
+    /// Also known as `ASO`
+    ///
+    /// This is an unofficial opcode
+    SLO,
+
+    /// Shift the targeted memory one bit to the left then XOR the result with `A`
+    ///
+    /// Also known as `LSE`
+    ///
+    /// This is an unoffiical opcode
+    ///
+    /// TODO: Finish instruction table for this opcode
+    SRE,
+
+    /// Rotate the targeted memory one bit to the right then AND the result with `A`
+    ///
+    /// This is an unofficial opcode
+    RLA,
 
     // =====================================================================================
     // =================================== Jumps & Calls ===================================
