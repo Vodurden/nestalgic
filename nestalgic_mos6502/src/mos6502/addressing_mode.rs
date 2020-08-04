@@ -255,16 +255,19 @@ impl Addressing {
     }
 
     fn target_relative<B>(self, cpu: &MOS6502<B>, offset: u8) -> Result<(Addressable, CyclesTaken)> {
+        let signed_offset = offset as i8;
+        let target = cpu.pc.wrapping_add(signed_offset as u16);
+
         let [pc_lo, pc_hi] = cpu.pc.to_le_bytes();
         let pc_lo = pc_lo.wrapping_add(offset);
-        let target = u16::from_le_bytes([pc_lo, pc_hi]);
+        let target_fixed_lo = u16::from_le_bytes([pc_lo, pc_hi]);
 
-        // TODO: +2 cycles if page boundary crossed
+        let page_boundary_crossed = target != target_fixed_lo;
 
         let addressable = Addressable {
             addressing: self,
             target: AddressableTarget::Memory(target),
-            page_boundary_crossed: false,
+            page_boundary_crossed,
         };
 
         Ok((addressable, 0))
