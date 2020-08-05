@@ -178,21 +178,31 @@ pub enum Opcode {
     /// Also known as `LSE`
     ///
     /// This is an unoffiical opcode
-    ///
-    /// TODO: Finish instruction table for this opcode
     SRE,
 
-    /// Rotate the targeted memory one bit to the right then AND the result with `A`
+    /// Rotate the targeted memory one bit to the left then AND the result with `A`
     ///
     /// This is an unofficial opcode
     RLA,
+
+    /// Rotate the targeted memory one bit to the right then `ADC` the result with `A`
+    ///
+    /// This is an unofficial opcode
+    RRA,
 
     // =====================================================================================
     // =================================== Jumps & Calls ===================================
     // =====================================================================================
 
+    /// Jump: Set `PC` to the target address
     JMP,
+
+    /// Jump to Subroutine: Push the current address (minus one) to the stack then set `PC`
+    /// the target address.
     JSR,
+
+    /// Return from Subroutine: Pull the program counter (minus one) from the stack and
+    /// set `PC` to the result
     RTS,
 
 

@@ -33,9 +33,6 @@ const STACK_END_ADDRESS: u16 = 0x01FF;
 ///
 /// The NES uses a Ricoh 2A03 which is basically a MOS6502 without the decimal mode.
 /// This means this class can be used to emulate the NES.
-///
-/// This trait functions as an existential type for `MOS6502Cpu` which implements the actual functionality.
-/// By using an existential type we can hide the <B: Bus> parameter which is used for nice storage of the `Bus` type.
 pub struct MOS6502<B> {
     /// `a` is the accumulator register. It has many uses including:
     ///
@@ -252,7 +249,8 @@ impl<B: Bus> MOS6502<B> {
             Opcode::ROL => self.op_rotate_left(instruction).map(|_| ()),
             Opcode::SLO => self.op_shift_left_then_or(instruction),
             Opcode::SRE => self.op_shift_right_then_xor(instruction),
-            Opcode::RLA => self.op_rotate_right_then_and(instruction),
+            Opcode::RLA => self.op_rotate_left_then_and(instruction),
+            Opcode::RRA => self.op_rotate_right_then_add(instruction),
 
             // Jumps & Calls
             Opcode::JMP => self.op_jump(instruction),
@@ -561,8 +559,12 @@ impl<B: Bus> MOS6502<B> {
     }
 
     fn op_add(&mut self, instruction: Instruction) -> Result<()> {
-        let lhs = self.a;
         let rhs = self.try_read_instruction_value(instruction)?;
+        self.add(Register::A, rhs)
+    }
+
+    fn add(&mut self, lhs_register: Register, rhs: u8) -> Result<()> {
+        let lhs = self.read_register(lhs_register);
         let carry: u8 = self.p.get(StatusFlag::Carry).into();
 
         let (result, result_overflow) = self.a.overflowing_add(rhs);
@@ -586,7 +588,7 @@ impl<B: Bus> MOS6502<B> {
         let overflow = (lhs_sign == rhs_sign) && (lhs_sign != result_sign);
         self.p.set(StatusFlag::Overflow, overflow);
 
-        self.write_register(Register::A, result);
+        self.write_register(lhs_register, result);
 
         Ok(())
     }
@@ -711,10 +713,15 @@ impl<B: Bus> MOS6502<B> {
         Ok(result)
     }
 
-    fn op_rotate_right_then_and(&mut self, instruction: Instruction) -> Result<()> {
+    fn op_rotate_left_then_and(&mut self, instruction: Instruction) -> Result<()> {
         let result = self.op_rotate_left(instruction)?;
         self.modify_register(Register::A, |a| a & result);
         Ok(())
+    }
+
+    fn op_rotate_right_then_add(&mut self, instruction: Instruction) -> Result<()> {
+        let result = self.op_rotate_right(instruction)?;
+        self.add(Register::A, result)
     }
 }
 
