@@ -1,0 +1,10 @@
+[package]
+name = "nestalgic"
+version = "0.1.0"
+authors = ["Jake Woods <jake@jakewoods.net>"]
+edition = "2018"
+
+[dependencies]
+thiserror = "1.0"
+nestalgic_mos6502 = { path = "../nestalgic_mos6502" }
+nestalgic_rom = { path = "../nestalgic_rom" }

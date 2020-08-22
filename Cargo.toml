@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "nestalgic",
     "nestalgic_mos6502",
     "nestalgic_rom",
     "nestalgic_ui"

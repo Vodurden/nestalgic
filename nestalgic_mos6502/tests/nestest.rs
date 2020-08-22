@@ -7,14 +7,15 @@ fn nestest() {
     let rom = NESROM::from_bytes(rom_file).expect("Failed to load ROM");
 
     // Because nestest is a NES rom we need to load it at the locations it expects.
-    let bus = RamBus16kb::new()
+    let mut bus = RamBus16kb::new()
         .with_memory_at(0x8000, rom.prg_rom.clone())
         .with_memory_at(0xC000, rom.prg_rom);
 
     // TODO: Disable Decimal mode as the NES uses a modified 6502 that ignores the Decimal flag.
     //
     // We still need the flag to be set by the instructions but the results should remain in binary mode.
-    let mut cpu = MOS6502::new(bus);
+    let mut cpu = MOS6502::new();
+    cpu.reset(&bus);
 
     // nestest expects the program counter to be `0xC000` for automated testing. This is the usual
     // start location of NES cartridges.
@@ -22,7 +23,7 @@ fn nestest() {
 
     // The CPU is initialized with 7 cycles to wait from the initial boot routine. Let's clear those so the
     // loop can start processing the test file
-    cpu.cycle_to_next_instruction().unwrap();
+    cpu.cycle_to_next_instruction(&mut bus).unwrap();
 
     for (assertion_number, assertion) in ASSERTIONS.iter().enumerate() {
         // Verify the expected state from the previous instruction
@@ -53,9 +54,9 @@ fn nestest() {
 
         println!(
             "{}/{}: {:X} (P:{:08b}, SP:{:02X}, A:{:02X}, X:{:02X}, Y:{:02X}): {:02X?}",
-            assertion_number, ASSERTIONS.len(), cpu.pc, cpu.p.0, cpu.sp, cpu.a, cpu.x, cpu.y, cpu.next_instruction()
+            assertion_number, ASSERTIONS.len(), cpu.pc, cpu.p.0, cpu.sp, cpu.a, cpu.x, cpu.y, cpu.next_instruction(&bus)
         );
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
     }
 }
 

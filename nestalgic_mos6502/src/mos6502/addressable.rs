@@ -37,12 +37,12 @@ impl Addressable {
         Ok(address)
     }
 
-    pub fn read<B: Bus>(&self, cpu: &MOS6502<B>) -> (u8, CyclesTaken) {
+    pub fn read(&self, cpu: &MOS6502, bus: &impl Bus) -> (u8, CyclesTaken) {
         match self.target {
             AddressableTarget::Accumulator => (cpu.a, 0),
             AddressableTarget::Immediate(value) => (value, 0),
             AddressableTarget::Memory(address) => {
-                let value = cpu.bus.read_u8(address);
+                let value = bus.read_u8(address);
                 let mut cycles_taken = 1; // read bus: +1 cycle
 
                 // If the page boundary was crossed the 6502 re-reads the memory location after
@@ -56,7 +56,7 @@ impl Addressable {
         }
     }
 
-    pub fn try_write<B: Bus>(&self, cpu: &mut MOS6502<B>, value: u8) -> Result<CyclesTaken> {
+    pub fn try_write(&self, cpu: &mut MOS6502, bus: &mut impl Bus, value: u8) -> Result<CyclesTaken> {
         match self.target {
             AddressableTarget::Immediate(_) => Err(Error::InvalidAddressableWrite(self.target, value)),
             AddressableTarget::Accumulator => {
@@ -64,7 +64,7 @@ impl Addressable {
                 Ok(0)
             }
             AddressableTarget::Memory(address) => {
-                cpu.bus.write_u8(address, value);
+                bus.write_u8(address, value);
 
                 let indirection_cycles = match self.addressing {
                     Addressing::AbsoluteX(_) => 1,
@@ -78,7 +78,12 @@ impl Addressable {
         }
     }
 
-    pub fn try_modify<B: Bus>(&self, cpu: &mut MOS6502<B>, f: impl FnOnce(u8) -> u8) -> Result<(u8, u8, CyclesTaken)> {
+    pub fn try_modify(
+        &self,
+        cpu: &mut MOS6502,
+        bus: &mut impl Bus,
+        f: impl FnOnce(u8) -> u8
+    ) -> Result<(u8, u8, CyclesTaken)> {
         // At first glance you might think we can write this function in terms of `read` and `try_write`.
         //
         // Think again!
@@ -102,7 +107,7 @@ impl Addressable {
             },
 
             AddressableTarget::Memory(address) => {
-                let input = cpu.bus.read_u8(address);
+                let input = bus.read_u8(address);
                 let mut read_cycles = 1; // read bus: +1 cycle
 
                 // For `AbsoluteX`, `AbsoluteY` and `IndirectIndexed` the 6502 reads the value twice before
@@ -116,11 +121,11 @@ impl Addressable {
 
                 let output = f(input);
 
-                cpu.bus.write_u8(address, output);
+                bus.write_u8(address, output);
                 let mut write_cycles = 1; // write bus: +1 cycle
 
                 // The 6502 actually writes the result twice when modifying, incurring an extra cycle
-                cpu.bus.write_u8(address, output);
+                bus.write_u8(address, output);
                 write_cycles += 1; // write bus: +1 cycle
 
                 Ok((input, output, read_cycles + write_cycles))

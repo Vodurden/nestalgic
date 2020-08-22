@@ -33,7 +33,7 @@ const STACK_END_ADDRESS: u16 = 0x01FF;
 ///
 /// The NES uses a Ricoh 2A03 which is basically a MOS6502 without the decimal mode.
 /// This means this class can be used to emulate the NES.
-pub struct MOS6502<B> {
+pub struct MOS6502 {
     /// `a` is the accumulator register. It has many uses including:
     ///
     /// - transferring data from memory to the accumulator
@@ -72,13 +72,11 @@ pub struct MOS6502<B> {
 
     /// The amount of cycles to wait for until performing the next instruction.
     pub wait_cycles: u32,
-
-    pub bus: B,
 }
 
-impl<B: Bus> MOS6502<B> {
-    pub fn new(bus: B) -> MOS6502<B> {
-        let mut cpu = MOS6502 {
+impl MOS6502 {
+    pub fn new() -> MOS6502 {
+        MOS6502 {
             a: 0,
             x: 0,
             y: 0,
@@ -90,16 +88,11 @@ impl<B: Bus> MOS6502<B> {
 
             elapsed_cycles: 0,
             wait_cycles: 0,
-
-            bus,
-        };
-
-        cpu.reset();
-        cpu
+        }
     }
 
     /// When called: Simulates the `reset` input of the 6502.
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, bus: &impl Bus) {
         // The InterruptDisable bit is set for all interrupts, including `RESET`
         self.p.set(StatusFlag::InterruptDisable, true);
 
@@ -119,7 +112,7 @@ impl<B: Bus> MOS6502<B> {
         //
         // We don't want to go through all this nonsense so let's just set `pc` and `sp` to
         // it's final value and wait for 7 cycles.
-        let target_address = self.bus.read_u16(INITIALIZATION_VECTOR_ADDRESS);
+        let target_address = bus.read_u16(INITIALIZATION_VECTOR_ADDRESS);
         self.pc = target_address;
 
         self.sp = 0xFD;
@@ -128,10 +121,10 @@ impl<B: Bus> MOS6502<B> {
     }
 
     /// Execute one clock cycle.
-    pub fn cycle(&mut self) -> Result<()> {
+    pub fn cycle(&mut self, bus: &mut impl Bus) -> Result<()> {
         if self.wait_cycles == 0 {
-            let instruction = self.read_instruction()?;
-            self.execute_instruction(instruction)?;
+            let instruction = self.read_instruction(bus)?;
+            self.execute_instruction(bus, instruction)?;
         } else {
             self.wait_cycles -= 1;
         }
@@ -143,11 +136,11 @@ impl<B: Bus> MOS6502<B> {
     /// Cycle the CPU until we hit a BRK (opcode 0).
     ///
     /// This is used for testing
-    pub fn cycle_until_brk(&mut self) -> Result<()> {
+    pub fn cycle_until_brk(&mut self, bus: &mut impl Bus) -> Result<()> {
         loop {
-            self.cycle()?;
+            self.cycle(bus)?;
 
-            if self.next_instruction().map(|i| i.opcode)? == Opcode::BRK {
+            if self.next_instruction(bus).map(|i| i.opcode)? == Opcode::BRK {
                 return Ok(())
             }
         }
@@ -157,9 +150,9 @@ impl<B: Bus> MOS6502<B> {
     /// that instruction.
     ///
     /// This is used for testing.
-    pub fn cycle_to_next_instruction(&mut self) -> Result<()> {
+    pub fn cycle_to_next_instruction(&mut self, bus: &mut impl Bus) -> Result<()> {
         loop {
-            self.cycle()?;
+            self.cycle(bus)?;
 
             if self.wait_cycles == 0 {
                 return Ok(())
@@ -167,15 +160,15 @@ impl<B: Bus> MOS6502<B> {
         }
     }
 
-    pub fn next_instruction(&self) -> Result<Instruction> {
-        let (instruction, _, _) = Instruction::try_from_bus(self.pc, &self.bus)?;
+    pub fn next_instruction(&self, bus: &impl Bus) -> Result<Instruction> {
+        let (instruction, _, _) = Instruction::try_from_bus(self.pc, bus)?;
         Ok(instruction)
     }
 
-    fn read_instruction(&mut self) -> Result<Instruction> {
+    fn read_instruction(&mut self, bus: &impl Bus) -> Result<Instruction> {
         // We always read an address, even for `implied` and `accumulate` addressing modes
         // to mimic the cycle behavior of the 6502.
-        let (instruction, bytes_read, bytes_used) = Instruction::try_from_bus(self.pc, &self.bus)?;
+        let (instruction, bytes_read, bytes_used) = Instruction::try_from_bus(self.pc, bus)?;
         self.pc += bytes_used;
 
         // We don't need to wait for the first cycle, we're in it!
@@ -184,28 +177,28 @@ impl<B: Bus> MOS6502<B> {
     }
 
 
-    fn read_u8(&mut self, address: Address) -> u8 {
-        let byte = self.bus.read_u8(address);
+    fn read_u8(&mut self, bus: &impl Bus, address: Address) -> u8 {
+        let byte = bus.read_u8(address);
         self.wait_cycles += 1;
         byte
     }
 
-    fn write_u8(&mut self, address: Address, value: u8) {
-        self.bus.write_u8(address, value);
+    fn write_u8(&mut self, bus: &mut impl Bus, address: Address, value: u8) {
+        bus.write_u8(address, value);
         self.wait_cycles += 1;
     }
 
-    fn execute_instruction(&mut self, instruction: Instruction) -> Result<()> {
+    fn execute_instruction(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
         match instruction.opcode {
             // Register Operations
-            Opcode::LDA => self.op_load(Register::A, instruction),
-            Opcode::LDX => self.op_load(Register::X, instruction),
-            Opcode::LDY => self.op_load(Register::Y, instruction),
-            Opcode::LAX => self.op_lax(instruction),
-            Opcode::STA => self.op_store(Register::A, instruction),
-            Opcode::STX => self.op_store(Register::X, instruction),
-            Opcode::STY => self.op_store(Register::Y, instruction),
-            Opcode::SAX => self.op_sax(instruction),
+            Opcode::LDA => self.op_load(bus, Register::A, instruction),
+            Opcode::LDX => self.op_load(bus, Register::X, instruction),
+            Opcode::LDY => self.op_load(bus, Register::Y, instruction),
+            Opcode::LAX => self.op_lax(bus, instruction),
+            Opcode::STA => self.op_store(bus, Register::A, instruction),
+            Opcode::STX => self.op_store(bus, Register::X, instruction),
+            Opcode::STY => self.op_store(bus, Register::Y, instruction),
+            Opcode::SAX => self.op_sax(bus, instruction),
             Opcode::TAX => self.op_transfer(Register::A, Register::X),
             Opcode::TAY => self.op_transfer(Register::A, Register::Y),
             Opcode::TXA => self.op_transfer(Register::X, Register::A),
@@ -214,58 +207,58 @@ impl<B: Bus> MOS6502<B> {
             // Stack Operations
             Opcode::TSX => self.op_transfer(Register::SP, Register::X),
             Opcode::TXS => self.op_transfer(Register::X, Register::SP),
-            Opcode::PHA => self.op_push_stack(Register::A),
-            Opcode::PHP => self.op_push_stack(Register::P),
-            Opcode::PLA => self.op_pull_stack(Register::A),
-            Opcode::PLP => self.op_pull_stack(Register::P),
+            Opcode::PHA => self.op_push_stack(bus, Register::A),
+            Opcode::PHP => self.op_push_stack(bus, Register::P),
+            Opcode::PLA => self.op_pull_stack(bus, Register::A),
+            Opcode::PLP => self.op_pull_stack(bus, Register::P),
 
             // Logical Operations
-            Opcode::AND => self.op_logical(instruction, |a, b| a & b),
-            Opcode::EOR => self.op_logical(instruction, |a, b| a ^ b),
-            Opcode::ORA => self.op_logical(instruction, |a, b| a | b),
-            Opcode::BIT => self.op_bit(instruction),
+            Opcode::AND => self.op_logical(bus, instruction, |a, b| a & b),
+            Opcode::EOR => self.op_logical(bus, instruction, |a, b| a ^ b),
+            Opcode::ORA => self.op_logical(bus, instruction, |a, b| a | b),
+            Opcode::BIT => self.op_bit(bus, instruction),
 
             // Arithmetic
-            Opcode::ADC => self.op_add(instruction),
-            Opcode::SBC => self.op_sub(instruction),
-            Opcode::CMP => self.op_compare(Register::A, instruction),
-            Opcode::CPX => self.op_compare(Register::X, instruction),
-            Opcode::CPY => self.op_compare(Register::Y, instruction),
+            Opcode::ADC => self.op_add(bus, instruction),
+            Opcode::SBC => self.op_sub(bus, instruction),
+            Opcode::CMP => self.op_compare(bus, Register::A, instruction),
+            Opcode::CPX => self.op_compare(bus, Register::X, instruction),
+            Opcode::CPY => self.op_compare(bus, Register::Y, instruction),
 
             // Increments & Decrements
-            Opcode::INC => self.try_modify_instruction_value(instruction, |v| v.wrapping_add(1)).map(|_| ()),
+            Opcode::INC => self.try_modify_instruction_value(bus, instruction, |v| v.wrapping_add(1)).map(|_| ()),
             Opcode::INX => Ok(self.modify_register(Register::X, |x| x.wrapping_add(1))),
             Opcode::INY => Ok(self.modify_register(Register::Y, |y| y.wrapping_add(1))),
-            Opcode::ISC => self.op_increment_subtract(instruction),
-            Opcode::DEC => self.try_modify_instruction_value(instruction, |v| v.wrapping_sub(1)).map(|_| ()),
+            Opcode::ISC => self.op_increment_subtract(bus, instruction),
+            Opcode::DEC => self.try_modify_instruction_value(bus, instruction, |v| v.wrapping_sub(1)).map(|_| ()),
             Opcode::DEX => Ok(self.modify_register(Register::X, |x| x.wrapping_sub(1))),
             Opcode::DEY => Ok(self.modify_register(Register::Y, |y| y.wrapping_sub(1))),
-            Opcode::DCP => self.op_decrement_compare(instruction),
+            Opcode::DCP => self.op_decrement_compare(bus, instruction),
 
             // Shifts
-            Opcode::ASL => self.op_shift_left(instruction).map(|_| ()),
-            Opcode::LSR => self.op_shift_right(instruction).map(|_| ()),
-            Opcode::ROR => self.op_rotate_right(instruction).map(|_| ()),
-            Opcode::ROL => self.op_rotate_left(instruction).map(|_| ()),
-            Opcode::SLO => self.op_shift_left_then_or(instruction),
-            Opcode::SRE => self.op_shift_right_then_xor(instruction),
-            Opcode::RLA => self.op_rotate_left_then_and(instruction),
-            Opcode::RRA => self.op_rotate_right_then_add(instruction),
+            Opcode::ASL => self.op_shift_left(bus, instruction).map(|_| ()),
+            Opcode::LSR => self.op_shift_right(bus, instruction).map(|_| ()),
+            Opcode::ROR => self.op_rotate_right(bus, instruction).map(|_| ()),
+            Opcode::ROL => self.op_rotate_left(bus, instruction).map(|_| ()),
+            Opcode::SLO => self.op_shift_left_then_or(bus, instruction),
+            Opcode::SRE => self.op_shift_right_then_xor(bus, instruction),
+            Opcode::RLA => self.op_rotate_left_then_and(bus, instruction),
+            Opcode::RRA => self.op_rotate_right_then_add(bus, instruction),
 
             // Jumps & Calls
-            Opcode::JMP => self.op_jump(instruction),
-            Opcode::JSR => self.op_jump_subroutine(instruction),
-            Opcode::RTS => self.op_return(),
+            Opcode::JMP => self.op_jump(bus, instruction),
+            Opcode::JSR => self.op_jump_subroutine(bus, instruction),
+            Opcode::RTS => self.op_return(bus),
 
             // Branches
-            Opcode::BCS => self.op_branch_if(instruction, self.p.get(StatusFlag::Carry)),
-            Opcode::BCC => self.op_branch_if(instruction, !self.p.get(StatusFlag::Carry)),
-            Opcode::BEQ => self.op_branch_if(instruction, self.p.get(StatusFlag::Zero)),
-            Opcode::BNE => self.op_branch_if(instruction, !self.p.get(StatusFlag::Zero)),
-            Opcode::BMI => self.op_branch_if(instruction, self.p.get(StatusFlag::Negative)),
-            Opcode::BPL => self.op_branch_if(instruction, !self.p.get(StatusFlag::Negative)),
-            Opcode::BVS => self.op_branch_if(instruction, self.p.get(StatusFlag::Overflow)),
-            Opcode::BVC => self.op_branch_if(instruction, !self.p.get(StatusFlag::Overflow)),
+            Opcode::BCS => self.op_branch_if(bus, instruction, self.p.get(StatusFlag::Carry)),
+            Opcode::BCC => self.op_branch_if(bus, instruction, !self.p.get(StatusFlag::Carry)),
+            Opcode::BEQ => self.op_branch_if(bus, instruction, self.p.get(StatusFlag::Zero)),
+            Opcode::BNE => self.op_branch_if(bus, instruction, !self.p.get(StatusFlag::Zero)),
+            Opcode::BMI => self.op_branch_if(bus, instruction, self.p.get(StatusFlag::Negative)),
+            Opcode::BPL => self.op_branch_if(bus, instruction, !self.p.get(StatusFlag::Negative)),
+            Opcode::BVS => self.op_branch_if(bus, instruction, self.p.get(StatusFlag::Overflow)),
+            Opcode::BVC => self.op_branch_if(bus, instruction, !self.p.get(StatusFlag::Overflow)),
 
             // Status Flag Functions
             Opcode::CLC => Ok(self.p.set(StatusFlag::Carry, false)),
@@ -277,8 +270,8 @@ impl<B: Bus> MOS6502<B> {
             Opcode::SEI => Ok(self.p.set(StatusFlag::InterruptDisable, true)),
 
             // System Functions
-            Opcode::NOP => self.op_nop(instruction),
-            Opcode::RTI => self.op_return_from_interrupt(),
+            Opcode::NOP => self.op_nop(bus, instruction),
+            Opcode::RTI => self.op_return_from_interrupt(bus),
             Opcode::BRK => panic!("BRK not yet implemented"),
         }
     }
@@ -326,112 +319,110 @@ impl<B: Bus> MOS6502<B> {
         self.write_register(register, result);
     }
 
-    fn push_stack(&mut self, values: &[u8]) {
+    fn push_stack(&mut self, bus: &mut impl Bus, values: &[u8]) {
         for &value in values {
-            self.write_u8(STACK_START_ADDRESS + self.sp as u16, value);
+            self.write_u8(bus, STACK_START_ADDRESS + self.sp as u16, value);
             self.sp = self.sp.wrapping_sub(1);
         }
     }
 
-    fn pull_stack(&mut self, n: u32) -> Vec<u8> {
+    fn pull_stack(&mut self, bus: &impl Bus, n: u32) -> Vec<u8> {
         // Incrementing the stack pointer costs a cycle on the 6502
         self.sp = self.sp.wrapping_add(1);
         self.wait_cycles += 1;
 
         let mut vec = Vec::new();
         for _ in 0..n-1 {
-            vec.push(self.read_u8(STACK_START_ADDRESS + self.sp as u16));
+            vec.push(self.read_u8(bus, STACK_START_ADDRESS + self.sp as u16));
             self.sp = self.sp.wrapping_add(1);
         }
 
         // The last read doesn't do `wrapping_add`
-        vec.push(self.read_u8(STACK_START_ADDRESS + self.sp as u16));
+        vec.push(self.read_u8(bus, STACK_START_ADDRESS + self.sp as u16));
 
         vec
     }
 
-    fn push_stack_u8(&mut self, value: u8) {
-        self.push_stack(&[value]);
+    fn push_stack_u8(&mut self, bus: &mut impl Bus, value: u8) {
+        self.push_stack(bus, &[value]);
     }
 
-    fn pull_stack_u8(&mut self) -> u8{
-        match self.pull_stack(1)[..] {
+    fn pull_stack_u8(&mut self, bus: &impl Bus) -> u8{
+        match self.pull_stack(bus, 1)[..] {
             [byte] => byte,
             _ => panic!("self.pull_stack(1) returned unexpected number of elements")
         }
     }
 
-    fn push_stack_u16(&mut self, value: u16) {
+    fn push_stack_u16(&mut self, bus: &mut impl Bus, value: u16) {
         let [lo, hi] = value.to_le_bytes();
 
         // When pushing addresses to the stack we push the `hi` bit first
-        self.push_stack(&[hi, lo]);
+        self.push_stack(bus, &[hi, lo]);
     }
 
-    fn pull_stack_u16(&mut self) -> u16 {
-        match self.pull_stack(2)[..] {
+    fn pull_stack_u16(&mut self, bus: &impl Bus) -> u16 {
+        match self.pull_stack(bus, 2)[..] {
             [lo, hi] => u16::from_le_bytes([lo, hi]),
             _ => panic!("self.pull_stack(1) returned unexpected number of elements")
         }
     }
 
-    pub fn print_stack(&self) {
-        let start = STACK_START_ADDRESS + self.sp as u16;
-        let end = STACK_END_ADDRESS;
-        let bytes = self.bus.read_range(start, end + 1);
-        println!("Stack (0x{:04X}..0x{:04X}): {:X?}", start, end, bytes);
-    }
-
-    fn try_read_instruction_target_address(&mut self, instruction: Instruction) -> Result<Address> {
-        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+    fn try_read_instruction_target_address(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<Address> {
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
         let address = addressable.address()?;
         Ok(address)
     }
 
-    fn try_read_instruction_value(&mut self, instruction: Instruction) -> Result<u8> {
-        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+    fn try_read_instruction_value(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<u8> {
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
-        let (value, read_cycles) = addressable.read(self);
+        let (value, read_cycles) = addressable.read(self, bus);
         self.wait_cycles += read_cycles;
 
         Ok(value)
     }
 
-    fn try_write_instruction_value(&mut self, instruction: Instruction, value: u8) -> Result<()> {
-        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+    fn try_write_instruction_value(&mut self, bus: &mut impl Bus, instruction: Instruction, value: u8) -> Result<()> {
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
-        let write_cycles = addressable.try_write(self, value)?;
+        let write_cycles = addressable.try_write(self, bus, value)?;
         self.wait_cycles += write_cycles;
 
         Ok(())
     }
 
-    fn try_modify_instruction_value(&mut self, instruction: Instruction, f: impl FnOnce(u8) -> u8) -> Result<(u8, u8)> {
-        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+    fn try_modify_instruction_value(
+        &mut self,
+        bus: &mut impl Bus,
+        instruction: Instruction,
+        f: impl FnOnce(u8) -> u8
+    ) -> Result<(u8, u8)> {
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
-        let (input, output, modify_cycles) = addressable.try_modify(self, f)?;
+        let (input, output, modify_cycles) = addressable.try_modify(self, bus, f)?;
         self.wait_cycles += modify_cycles;
 
         Ok((input, output))
     }
 
-    fn op_nop(&mut self, instruction: Instruction) -> Result<()> {
+    fn op_nop(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
         // Nop is identical to any other read instruction except it throws away the value
         //
         // We ignore errors with reading during NOP since the "legal" NOP has an implied addressing
         // mode which usually results in an invalid read
-        let _ = self.try_read_instruction_value(instruction);
+        let _ = self.try_read_instruction_value(bus, instruction);
 
         Ok(())
     }
 
-    fn op_load(&mut self, register: Register, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
+    fn op_load(&mut self, bus: &impl Bus, register: Register, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(bus, instruction)?;
         self.write_register(register, value);
         Ok(())
     }
@@ -439,23 +430,23 @@ impl<B: Bus> MOS6502<B> {
     /// Special variant of `op_load` that loads into `A` and `X`
     ///
     /// Takes the same amount of time as a single `op_load`
-    fn op_lax(&mut self, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
+    fn op_lax(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(bus, instruction)?;
         self.write_register(Register::A, value);
         self.write_register(Register::X, value);
         Ok(())
     }
 
-    fn op_store(&mut self, register: Register, instruction: Instruction) -> Result<()> {
+    fn op_store(&mut self, bus: &mut impl Bus, register: Register, instruction: Instruction) -> Result<()> {
         let value = self.read_register(register);
-        self.try_write_instruction_value(instruction, value)?;
+        self.try_write_instruction_value(bus, instruction, value)?;
         Ok(())
     }
 
     /// Special variant of `op_store` that stores `A & X` into the target address
-    fn op_sax(&mut self, instruction: Instruction) -> Result<()> {
+    fn op_sax(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
         let value = self.a & self.x;
-        self.try_write_instruction_value(instruction, value)?;
+        self.try_write_instruction_value(bus, instruction, value)?;
         Ok(())
     }
 
@@ -466,7 +457,7 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
-    fn op_push_stack(&mut self, source: Register) -> Result<()> {
+    fn op_push_stack(&mut self, bus: &mut impl Bus, source: Register) -> Result<()> {
         let mut value = self.read_register(source);
         // If we push `P` it sets `Break` to `true` for the value that is pushed to the stack
         if source == Register::P {
@@ -475,38 +466,38 @@ impl<B: Bus> MOS6502<B> {
                 .0;
         }
 
-        self.push_stack_u8(value);
+        self.push_stack_u8(bus, value);
 
         Ok(())
     }
 
-    fn op_pull_stack(&mut self, target: Register) -> Result<()> {
-        let value = self.pull_stack_u8();
+    fn op_pull_stack(&mut self, bus: &impl Bus, target: Register) -> Result<()> {
+        let value = self.pull_stack_u8(bus);
         self.write_register(target, value);
         Ok(())
     }
 
-    fn op_jump(&mut self, instruction: Instruction) -> Result<()> {
-        let address = self.try_read_instruction_target_address(instruction)?;
+    fn op_jump(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+        let address = self.try_read_instruction_target_address(bus, instruction)?;
         self.pc = address;
         Ok(())
     }
 
-    fn op_jump_subroutine(&mut self, instruction: Instruction) -> Result<()> {
-        let address = self.try_read_instruction_target_address(instruction)?;
+    fn op_jump_subroutine(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
+        let address = self.try_read_instruction_target_address(bus, instruction)?;
 
         // Calculating the return_address costs 1 cycle on the 6502
         let return_address = self.pc - 1;
         self.wait_cycles += 1;
 
-        self.push_stack_u16(return_address);
+        self.push_stack_u16(bus, return_address);
 
         self.pc = address;
         Ok(())
     }
 
-    fn op_return(&mut self) -> Result<()> {
-        let address = self.pull_stack_u16();
+    fn op_return(&mut self, bus: &impl Bus) -> Result<()> {
+        let address = self.pull_stack_u16(bus);
 
         // Calculating the offset address costs 1 cycle on the 6502
         self.pc = address + 1;
@@ -514,8 +505,8 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
-    fn op_return_from_interrupt(&mut self) -> Result<()> {
-        if let [p, pcl, pch] = self.pull_stack(3)[..] {
+    fn op_return_from_interrupt(&mut self, bus: &impl Bus) -> Result<()> {
+        if let [p, pcl, pch] = self.pull_stack(bus, 3)[..] {
             self.write_register(Register::P, p);
             self.pc = u16::from_le_bytes([pcl, pch]);
             Ok(())
@@ -525,8 +516,8 @@ impl<B: Bus> MOS6502<B> {
 
     }
 
-    fn op_branch_if(&mut self, instruction: Instruction, condition: bool) -> Result<()> {
-        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self)?;
+    fn op_branch_if(&mut self, bus: &impl Bus, instruction: Instruction, condition: bool) -> Result<()> {
+        let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
         let address = addressable.address()?;
@@ -541,15 +532,15 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
-    fn op_logical(&mut self, instruction: Instruction, f: fn(u8, u8) -> u8) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
+    fn op_logical(&mut self, bus: &impl Bus, instruction: Instruction, f: fn(u8, u8) -> u8) -> Result<()> {
+        let value = self.try_read_instruction_value(bus, instruction)?;
         let result = f(self.a, value);
         self.write_register(Register::A, result);
         Ok(())
     }
 
-    fn op_bit(&mut self, instruction: Instruction) -> Result<()> {
-        let value = self.try_read_instruction_value(instruction)?;
+    fn op_bit(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+        let value = self.try_read_instruction_value(bus, instruction)?;
         let result = value & self.a;
 
         self.p.set(StatusFlag::Zero, result == 0);
@@ -558,8 +549,8 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
-    fn op_add(&mut self, instruction: Instruction) -> Result<()> {
-        let rhs = self.try_read_instruction_value(instruction)?;
+    fn op_add(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+        let rhs = self.try_read_instruction_value(bus, instruction)?;
         self.add(Register::A, rhs)
     }
 
@@ -593,16 +584,16 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
-    fn op_sub(&mut self, instruction: Instruction) -> Result<()> {
-        let rhs = self.try_read_instruction_value(instruction)?;
+    fn op_sub(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+        let rhs = self.try_read_instruction_value(bus, instruction)?;
         self.subtract(Register::A, rhs)
     }
 
     /// Increment the addressed memory then subtract the result from `a`
     ///
     /// This is an unofficial opcode
-    fn op_increment_subtract(&mut self, instruction: Instruction) -> Result<()> {
-        let (_, output) = self.try_modify_instruction_value(instruction, |v| v.wrapping_add(1))?;
+    fn op_increment_subtract(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
+        let (_, output) = self.try_modify_instruction_value(bus, instruction, |v| v.wrapping_add(1))?;
         self.subtract(Register::A, output)
     }
 
@@ -632,9 +623,9 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
-    fn op_compare(&mut self, register: Register, instruction: Instruction) -> Result<()> {
+    fn op_compare(&mut self, bus: &impl Bus, register: Register, instruction: Instruction) -> Result<()> {
         let register = self.read_register(register);
-        let value = self.try_read_instruction_value(instruction)?;
+        let value = self.try_read_instruction_value(bus, instruction)?;
         let result = register.wrapping_sub(value);
 
         // Compare can be thought of a subtraction that doesn't affect the register. I.e. these
@@ -648,8 +639,8 @@ impl<B: Bus> MOS6502<B> {
     /// Decrements the addressed memory then compares the result with `a`
     ///
     /// This is an unofficial opcode
-    fn op_decrement_compare(&mut self, instruction: Instruction) -> Result<()> {
-        let (_, output) = self.try_modify_instruction_value(instruction, |v| v.wrapping_sub(1))?;
+    fn op_decrement_compare(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
+        let (_, output) = self.try_modify_instruction_value(bus, instruction, |v| v.wrapping_sub(1))?;
 
         // Compare can be thought of a subtraction that doesn't affect the register. I.e. these
         // flags are the result of (register - value).
@@ -661,35 +652,35 @@ impl<B: Bus> MOS6502<B> {
         Ok(())
     }
 
-    fn op_shift_left(&mut self, instruction: Instruction) -> Result<u8> {
-        let (value, result) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shl(1))?;
+    fn op_shift_left(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<u8> {
+        let (value, result) = self.try_modify_instruction_value(bus, instruction, |value| value.wrapping_shl(1))?;
         self.p.set(StatusFlag::Carry, value & 0b1000_0000 > 0);
 
         Ok(result)
     }
 
-    fn op_shift_left_then_or(&mut self, instruction: Instruction) -> Result<()> {
-        let result = self.op_shift_left(instruction)?;
+    fn op_shift_left_then_or(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
+        let result = self.op_shift_left(bus, instruction)?;
         self.modify_register(Register::A, |a| a | result);
         Ok(())
     }
 
-    fn op_shift_right(&mut self, instruction: Instruction) -> Result<u8> {
-        let (value, result) = self.try_modify_instruction_value(instruction, |value| value.wrapping_shr(1))?;
+    fn op_shift_right(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<u8> {
+        let (value, result) = self.try_modify_instruction_value(bus, instruction, |value| value.wrapping_shr(1))?;
         self.p.set(StatusFlag::Carry, value & 0b0000_0001 > 0);
 
         Ok(result)
     }
 
-    fn op_shift_right_then_xor(&mut self, instruction: Instruction) -> Result<()> {
-        let result = self.op_shift_right(instruction)?;
+    fn op_shift_right_then_xor(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
+        let result = self.op_shift_right(bus, instruction)?;
         self.modify_register(Register::A, |a| a ^ result);
         Ok(())
     }
 
-    fn op_rotate_left(&mut self, instruction: Instruction) -> Result<u8> {
+    fn op_rotate_left(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<u8> {
         let carry = u8::from(self.p.get(StatusFlag::Carry));
-        let (value, result) = self.try_modify_instruction_value(instruction, |value| {
+        let (value, result) = self.try_modify_instruction_value(bus, instruction, |value| {
             let result = value.wrapping_shl(1);
             let result = result | carry;
             result
@@ -700,9 +691,9 @@ impl<B: Bus> MOS6502<B> {
         Ok(result)
     }
 
-    fn op_rotate_right(&mut self, instruction: Instruction) -> Result<u8> {
+    fn op_rotate_right(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<u8> {
         let carry = u8::from(self.p.get(StatusFlag::Carry)) << 7;
-        let (value, result) = self.try_modify_instruction_value(instruction, |value| {
+        let (value, result) = self.try_modify_instruction_value(bus, instruction, |value| {
             let result = value.wrapping_shr(1);
             let result = result | carry;
             result
@@ -713,14 +704,14 @@ impl<B: Bus> MOS6502<B> {
         Ok(result)
     }
 
-    fn op_rotate_left_then_and(&mut self, instruction: Instruction) -> Result<()> {
-        let result = self.op_rotate_left(instruction)?;
+    fn op_rotate_left_then_and(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
+        let result = self.op_rotate_left(bus, instruction)?;
         self.modify_register(Register::A, |a| a & result);
         Ok(())
     }
 
-    fn op_rotate_right_then_add(&mut self, instruction: Instruction) -> Result<()> {
-        let result = self.op_rotate_right(instruction)?;
+    fn op_rotate_right_then_add(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
+        let result = self.op_rotate_right(bus, instruction)?;
         self.add(Register::A, result)
     }
 }
@@ -737,7 +728,8 @@ mod tests {
         let mut bus = RamBus16kb::new();
         bus.write_u16(0xFFFC, 0xFF00);
 
-        let cpu = MOS6502::new(bus);
+        let mut cpu = MOS6502::new();
+        cpu.reset(&mut bus);
 
         assert_eq!(cpu.pc, 0xFF00);
     }
@@ -749,9 +741,11 @@ mod tests {
             0xA2, 0x55,  // LDX #$55
             0xA0, 0x25,  // LDY #$25
         ];
-        let bus = RamBus16kb::new().with_program(program);
-        let mut cpu = MOS6502::new(bus);
-        cpu.cycle_until_brk().unwrap();
+        let mut bus = RamBus16kb::new().with_program(program);
+
+        let mut cpu = MOS6502::new();
+        cpu.reset(&bus);
+        cpu.cycle_until_brk(&mut bus).unwrap();
 
         assert_eq!(cpu.a, 0xBB);
         assert_eq!(cpu.x, 0x55);
@@ -768,14 +762,15 @@ mod tests {
             0x86, 0x01,  // STX $01
             0x84, 0x02,  // STY $02
         ];
-        let bus = RamBus16kb::new()
+        let mut bus = RamBus16kb::new()
             .with_program(program);
-        let mut cpu = MOS6502::new(bus);
-        cpu.cycle_until_brk().unwrap();
+        let mut cpu = MOS6502::new();
+        cpu.reset(&bus);
+        cpu.cycle_until_brk(&mut bus).unwrap();
 
-        assert_eq!(cpu.bus.memory[0x00], 0xBE);
-        assert_eq!(cpu.bus.memory[0x01], 0x40);
-        assert_eq!(cpu.bus.memory[0x02], 0xFF);
+        assert_eq!(bus.memory[0x00], 0xBE);
+        assert_eq!(bus.memory[0x01], 0x40);
+        assert_eq!(bus.memory[0x02], 0xFF);
     }
 
     /// Pushing a 16 bit address on the stack is a bit fiddly. This test is to check that `JSR` and `RTS` have the correct
@@ -801,40 +796,41 @@ mod tests {
             0x60,             // 0x0202: RTS
         ];
 
-        let bus = RamBus16kb::new()
+        let mut bus = RamBus16kb::new()
             .with_memory_at(0xF000, main_program)
             .with_memory_at(0x0200, sub_program);
-        let mut cpu = MOS6502::new(bus);
-        println!("{:X?}", Vec::from(&cpu.bus.memory[0x0200..0x0205]));
+        let mut cpu = MOS6502::new();
+        cpu.reset(&bus);
+        println!("{:X?}", Vec::from(&bus.memory[0x0200..0x0205]));
 
         // Pretend we already ran the reset sequence
         cpu.pc = 0xF000; // We've put the program in 0xF000 so we can see the high byte on the stack
         cpu.wait_cycles = 0;
 
         // Stage 1 checks
-        cpu.cycle_to_next_instruction().unwrap(); // LDX #$FF
-        cpu.cycle_to_next_instruction().unwrap(); // TXS
-        cpu.cycle_to_next_instruction().unwrap(); // LDA #$BB
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // LDX #$FF
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // TXS
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // LDA #$BB
         assert_eq!(cpu.a, 0xBB);
         assert_eq!(cpu.sp, 0xFF);
 
         // Stage 2 checks: We expect the stack to contain [0xF0, 0x07]. We expect 0x07 instead of 0x08 because `JSR` pushes
         // the current address _minus 1_ to the stack.
         assert_eq!(cpu.pc, 0xF005);
-        cpu.cycle_to_next_instruction().unwrap(); // JSR $0200
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // JSR $0200
         assert_eq!(cpu.pc, 0x0200);
-        assert_eq!(cpu.bus.memory[0x01FF], 0xF0, "found {:X} at SP 0xFF, expected {:X}", cpu.bus.memory[0x01FF], 0xF0);
-        assert_eq!(cpu.bus.memory[0x01FE], 0x07, "found {:X} at SP 0xFE, expected {:X}", cpu.bus.memory[0x01FE], 0x07);
+        assert_eq!(bus.memory[0x01FF], 0xF0, "found {:X} at SP 0xFF, expected {:X}", bus.memory[0x01FF], 0xF0);
+        assert_eq!(bus.memory[0x01FE], 0x07, "found {:X} at SP 0xFE, expected {:X}", bus.memory[0x01FE], 0x07);
 
         // Stage 3 checks: We expect to jump back to `0xF008` because `RTS` adds 1 to the address retrieved from the stack
-        println!("{:X}: {:X?}", cpu.pc, Vec::from(&cpu.bus.memory[0x0200..0x0205]));
-        cpu.cycle_to_next_instruction().unwrap(); // LDA #$FF
-        cpu.cycle_to_next_instruction().unwrap(); // RTS
+        println!("{:X}: {:X?}", cpu.pc, Vec::from(&bus.memory[0x0200..0x0205]));
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // LDA #$FF
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // RTS
         assert_eq!(cpu.a, 0xFF);
         assert_eq!(cpu.pc, 0xF008);
 
         // Stage 4 checks
-        cpu.cycle_to_next_instruction().unwrap(); // LDX #$BE
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // LDX #$BE
         assert_eq!(cpu.x, 0xBE);
     }
 
@@ -868,49 +864,50 @@ mod tests {
             0x68,        // PLA
         ];
 
-        let bus = RamBus16kb::new()
+        let mut bus = RamBus16kb::new()
             .with_program(program);
-        let mut cpu = MOS6502::new(bus);
+        let mut cpu = MOS6502::new();
+        cpu.reset(&bus);
 
         // Cycle the reset instructions
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
 
         // Stage 1 checks
-        cpu.cycle_to_next_instruction().unwrap();
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
         assert_eq!(cpu.sp, 0xFF);
 
         // Stage 2 checks
-        cpu.cycle_to_next_instruction().unwrap();
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
         assert_eq!(cpu.sp, 0xFE);
-        assert_eq!(cpu.bus.memory[0x01FF], 0xE0);
+        assert_eq!(bus.memory[0x01FF], 0xE0);
 
         // Stage 3 checks
-        cpu.cycle_to_next_instruction().unwrap();
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
         assert_eq!(cpu.sp, 0xFD);
-        assert_eq!(cpu.bus.memory[0x01FE], 0xBB);
+        assert_eq!(bus.memory[0x01FE], 0xBB);
 
         // Stage 4 checks
-        cpu.cycle_to_next_instruction().unwrap();
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
         assert_eq!(cpu.sp, 0xFC);
-        assert_eq!(cpu.bus.memory[0x01FD], 0xFF);
+        assert_eq!(bus.memory[0x01FD], 0xFF);
 
         // Stage 5 checks
-        cpu.cycle_to_next_instruction().unwrap();
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
         assert_eq!(cpu.sp, 0xFD);
         assert_eq!(cpu.a, 0xFF);
 
         // Stage 6 checks
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
         assert_eq!(cpu.sp, 0xFE);
         assert_eq!(cpu.a, 0xBB);
 
         // Stage 7 checks
-        cpu.cycle_to_next_instruction().unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
         assert_eq!(cpu.sp, 0xFF);
         assert_eq!(cpu.a, 0xE0);
     }

@@ -191,18 +191,18 @@ impl AddressingMode {
 }
 
 impl Addressing {
-    pub fn read_addressable<B: Bus>(self, cpu: &MOS6502<B>) -> Result<(Addressable, CyclesTaken)> {
+    pub fn read_addressable(self, cpu: &MOS6502, bus: &impl Bus) -> Result<(Addressable, CyclesTaken)> {
         match self {
             Addressing::Implied => Err(Error::InvalidTargetAddressAttempt(self)),
             Addressing::Accumulator => self.target_accumulator(),
             Addressing::Immediate(value) => self.target_immediate(value),
             Addressing::ZeroPage(address) => self.target_zero_page(address),
-            Addressing::ZeroPageX(address) => self.target_zero_page_indexed(cpu, address, cpu.x),
-            Addressing::ZeroPageY(address) => self.target_zero_page_indexed(cpu, address, cpu.y),
+            Addressing::ZeroPageX(address) => self.target_zero_page_indexed(bus, address, cpu.x),
+            Addressing::ZeroPageY(address) => self.target_zero_page_indexed(bus, address, cpu.y),
             Addressing::Relative(offset) => self.target_relative(cpu, offset),
-            Addressing::IndexedIndirect(indexed_address) => self.target_indexed_indirect(cpu, indexed_address),
-            Addressing::IndirectIndexed(indexed_address) => self.target_indirect_indexed(cpu, indexed_address),
-            Addressing::Indirect(target_address) => self.target_indirect(cpu, target_address),
+            Addressing::IndexedIndirect(indexed_address) => self.target_indexed_indirect(cpu, bus, indexed_address),
+            Addressing::IndirectIndexed(indexed_address) => self.target_indirect_indexed(cpu, bus, indexed_address),
+            Addressing::Indirect(target_address) => self.target_indirect(bus, target_address),
             Addressing::Absolute(address) => self.target_absolute(address),
             Addressing::AbsoluteX(base_address) => self.target_absolute_indexed(base_address, cpu.x),
             Addressing::AbsoluteY(base_address) => self.target_absolute_indexed(base_address, cpu.y),
@@ -239,9 +239,14 @@ impl Addressing {
         Ok((addressable, 0))
     }
 
-    fn target_zero_page_indexed<B: Bus>(self, cpu: &MOS6502<B>, address: u8, register: u8) -> Result<(Addressable, CyclesTaken)> {
+    fn target_zero_page_indexed(
+        self,
+        bus: &impl Bus,
+        address: u8,
+        register: u8
+    ) -> Result<(Addressable, CyclesTaken)> {
         // The 6502 does a dummy read on zero page indexed that it throws away. +1 Cycle
-        let _ = cpu.bus.read_u8(address as u16);
+        let _ = bus.read_u8(address as u16);
         let address = address.wrapping_add(register);
         let cycles_taken = 1;
 
@@ -254,7 +259,7 @@ impl Addressing {
         Ok((addressable, cycles_taken))
     }
 
-    fn target_relative<B>(self, cpu: &MOS6502<B>, offset: u8) -> Result<(Addressable, CyclesTaken)> {
+    fn target_relative(self, cpu: &MOS6502, offset: u8) -> Result<(Addressable, CyclesTaken)> {
         let signed_offset = offset as i8;
         let target = cpu.pc.wrapping_add(signed_offset as u16);
 
@@ -273,17 +278,22 @@ impl Addressing {
         Ok((addressable, 0))
     }
 
-    fn target_indexed_indirect<B: Bus>(self, cpu: &MOS6502<B>, indexed_address: u8) -> Result<(Addressable, CyclesTaken)> {
+    fn target_indexed_indirect(
+        self,
+        cpu: &MOS6502,
+        bus: &impl Bus,
+        indexed_address: u8
+    ) -> Result<(Addressable, CyclesTaken)> {
         // Adding `x` to the address costs 1 cycle on the 6502.
         let target_address_lo = indexed_address.wrapping_add(cpu.x);
         let mut cycles_taken = 1;
-        let target_lo = cpu.bus.read_u8(target_address_lo as u16);
+        let target_lo = bus.read_u8(target_address_lo as u16);
         cycles_taken += 1;
 
         // Incrementing `target_address_lo` by one is done as part of the read cycle so it
         // doesn't cost an extra cycle
         let target_address_hi = target_address_lo.wrapping_add(1);
-        let target_hi = cpu.bus.read_u8(target_address_hi as u16);
+        let target_hi = bus.read_u8(target_address_hi as u16);
         cycles_taken += 1;
 
         // We don't use `cpu.read_u16` here because we need each part of
@@ -300,13 +310,18 @@ impl Addressing {
         Ok((addressable, cycles_taken))
     }
 
-    fn target_indirect_indexed<B: Bus>(self, cpu: &MOS6502<B>, indexed_address: u8) -> Result<(Addressable, CyclesTaken)> {
+    fn target_indirect_indexed(
+        self,
+        cpu: &MOS6502,
+        bus: &impl Bus,
+        indexed_address: u8
+    ) -> Result<(Addressable, CyclesTaken)> {
         let target_address_lo = indexed_address;
-        let target_lo = cpu.bus.read_u8(target_address_lo as u16);
+        let target_lo = bus.read_u8(target_address_lo as u16);
         let mut cycles_taken = 1;
 
         let target_address_hi = indexed_address.wrapping_add(1);
-        let target_hi = cpu.bus.read_u8(target_address_hi as u16);
+        let target_hi = bus.read_u8(target_address_hi as u16);
         cycles_taken += 1;
 
         // We don't use `cpu.read_u16` here because we need each part of
@@ -330,8 +345,12 @@ impl Addressing {
         Ok((addressable, cycles_taken))
     }
 
-    fn target_indirect<B: Bus>(self, cpu: &MOS6502<B>, target_address: Address) -> Result<(Addressable, CyclesTaken)> {
-        let address_lo = cpu.bus.read_u8(target_address);
+    fn target_indirect(
+        self,
+        bus: &impl Bus,
+        target_address: Address
+    ) -> Result<(Addressable, CyclesTaken)> {
+        let address_lo = bus.read_u8(target_address);
         let mut cycles_taken = 1;
 
         // This is a bug in the original 6502 that we need to emulate: If our address
@@ -343,7 +362,7 @@ impl Addressing {
         let [target_address_lo, target_address_hi] = target_address.to_le_bytes();
         let target_address_lo = target_address_lo.wrapping_add(1);
         let target_address_plus_one_with_bug = u16::from_le_bytes([target_address_lo, target_address_hi]);
-        let address_hi = cpu.bus.read_u8(target_address_plus_one_with_bug);
+        let address_hi = bus.read_u8(target_address_plus_one_with_bug);
         cycles_taken += 1;
 
         let address = u16::from_le_bytes([address_lo, address_hi]);
