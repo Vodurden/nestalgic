@@ -37,9 +37,30 @@ impl RP2C02 {
         }
     }
 
-    pub fn cycle(&mut self, _mapper: &mut dyn Mapper) {
-        for pixel in &mut self.pixels[0..20] {
-            *pixel = Pixel::new(255, 0, 0, 0);
+    pub fn cycle(&mut self, mapper: &mut dyn Mapper) {
+        // Render first tile in pattern table 0 (0x0000-0x0FFF)
+        //
+        // Each tile is 8x8
+        let plane_1 = (0..8).map(|a| mapper.ppu_read_u8(a)).collect::<Vec<u8>>();
+        let plane_2 = (8..16).map(|a| mapper.ppu_read_u8(a)).collect::<Vec<u8>>();
+
+        for y in 0..8 {
+            let line_byte_1 = plane_1[y];
+            let line_byte_2 = plane_2[y];
+
+            for x in 0..8 {
+                let pixel_bit_1 = (line_byte_1 >> 7 - x) & 1;
+                let pixel_bit_2 = (line_byte_2 >> 7 - x) & 1;
+                let pixel_value = pixel_bit_1 + (pixel_bit_2 << 1);
+
+                self.pixels[(y * RP2C02::SCREEN_WIDTH) + x] = match pixel_value {
+                    0 => Pixel::empty(),
+                    1 => Pixel::new(255, 0, 0, 255),
+                    2 => Pixel::new(0, 255, 0, 255),
+                    3 => Pixel::new(0, 0, 255, 255),
+                    _ => Pixel::new(255, 0, 255, 255)
+                };
+            }
         }
     }
 
