@@ -41,7 +41,7 @@
 /// - `B` is ignored when reading from the stack into `P`
 /// - ` ` (unused) is _always_ set to 1.
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub struct Status(pub u8);
 
 impl Status {
@@ -60,10 +60,23 @@ impl Status {
         }
     }
 
-    pub fn with(&mut self, flag: StatusFlag, value: bool) -> &mut Self {
-        self.set(flag, value);
-        self
+    pub fn with(&self, flag: StatusFlag, value: bool) -> Self {
+        let mut status = self.clone();
+        status.set(flag, value);
+        status
     }
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        let mut status = Status(0);
+
+        // Unused should always be true
+        status.set(StatusFlag::Unused, true);
+
+        return status;
+    }
+
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]

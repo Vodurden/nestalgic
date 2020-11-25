@@ -6,25 +6,24 @@ mod instruction;
 mod error;
 mod register;
 mod status;
+mod interrupt;
 
 use instruction::Instruction;
 use opcode::Opcode;
 use error::Error;
 use register::Register;
+use interrupt::Interrupt;
 
 pub use bus::Bus;
 pub use bus::RamBus16kb;
 pub use status::{Status, StatusFlag};
+pub use interrupt::{NMI_VECTOR_ADDRESS, IRQ_VECTOR_ADDRESS, RESET_VECTOR_ADDRESS};
 
 pub type Result<A> = std::result::Result<A, Error>;
 
 pub type Address = u16;
 pub type BytesUsed = u16;
 pub type CyclesTaken = u32;
-
-const INITIALIZATION_VECTOR_ADDRESS: u16 = 0xFFFC;
-
-const NMI_VECTOR_ADDRESS: u16 = 0xFFFA;
 
 const STACK_START_ADDRESS: u16 = 0x0100;
 const STACK_END_ADDRESS: u16 = 0x01FF;
@@ -67,6 +66,24 @@ pub struct MOS6502 {
     /// ranges between `00` to `FF`
     pub sp: u8,
 
+    /// `rdy` indicates the state of the ready pin on the 6502.
+    ///
+    /// When false the processor will "freeze" at the end of the next cycle.
+    ///
+    /// The 6502 would _not_ freeze on a "read" cycle. We emulate this by deferring
+    /// the freeze from `rdy` to the next even cycle. 
+    pub rdy: bool,
+
+    /// `nmi` indicates whether the non maskable interrupt line is active on the CPU.
+    ///
+    /// When set to true the next cycle will trigger the interrupt behavior
+    pub nmi: bool,
+
+    /// `irq` indicates whether the maskable interrupt line is active on the CPU.
+    ///
+    /// When set to true the next cycle will trigger the interrupt behavior
+    pub irq: bool,
+
     /// The total number of cycles that have elapsed since the CPU started running.
     pub elapsed_cycles: u64,
 
@@ -81,10 +98,14 @@ impl MOS6502 {
             x: 0,
             y: 0,
 
-            p: Status(0),
+            p: Status::default(),
 
             pc: 0,
             sp: 0,
+
+            rdy: true,
+            nmi: false,
+            irq: false,
 
             elapsed_cycles: 0,
             wait_cycles: 0,
@@ -92,44 +113,37 @@ impl MOS6502 {
     }
 
     /// When called: Simulates the `reset` input of the 6502.
-    pub fn reset(&mut self, bus: &impl Bus) {
-        // The InterruptDisable bit is set for all interrupts, including `RESET`
-        self.p.set(StatusFlag::InterruptDisable, true);
-
-        // Unused should always be true
-        self.p.set(StatusFlag::Unused, true);
-
-        // The 6502 performs these operations on reset:
-        //
-        // - Initialize the Stack Pointer to 0. Pull the instruction register to 0. (3 cycles, sp = 00)
-        // - Try to push `pch`, which does nothing because the bus is in read-mode. Decrement `sp` (1 cycle, sp = FF)
-        // - Try to push `pcl`, which does nothing again. Decrement `sp` (1 cycle, sp = FE)
-        // - Try to push `p`, which does nothing _again_. Decrement `sp` (1 cycle, sp = FD)
-        // - Read the low byte of INITIALIZATION_VECTOR_ADDRESS into `pcl` (1 cycle)
-        // - Read the high byte of INITIALIZATION_VECTOR_ADDRESS into `pch` (1 cycle)
-        //
-        // (Source: https://www.pagetable.com/?p=410)
-        //
-        // We don't want to go through all this nonsense so let's just set `pc` and `sp` to
-        // it's final value and wait for 7 cycles.
-        let target_address = bus.read_u16(INITIALIZATION_VECTOR_ADDRESS);
-        self.pc = target_address;
-
-        self.sp = 0xFD;
-
-        self.wait_cycles += 7;
+    pub fn reset(&mut self, bus: &mut impl Bus) -> Result<()> {
+        self.interrupt(bus, Interrupt::RESET)
     }
 
     /// Execute one clock cycle.
     pub fn cycle(&mut self, bus: &mut impl Bus) -> Result<()> {
-        if self.wait_cycles == 0 {
-            let instruction = self.read_instruction(bus)?;
-            self.execute_instruction(bus, instruction)?;
-        } else {
+        if self.wait_cycles > 0 {
             self.wait_cycles -= 1;
+            self.elapsed_cycles += 1;
+            return Ok(())
         }
 
+        // The `rdy` pin only takes effect on the second cycle of the 6502's two
+        // phase cycle (https://retrocomputing.stackexchange.com/a/11227)
+        //
+        // To simulate this we only respect the `rdy` pin if we are on an even cycle.
+        //
+        // This behavior allows us to easily account for the even/odd cycle time for
+        // the PPU's OAMDMA in the NES since it is implemented using the `rdy` pin.
+        let cpu_not_ready = !self.rdy && self.elapsed_cycles % 2 == 0;
+        if cpu_not_ready {
+            return Ok(())
+        }
+
+        self.execute_interrupts(bus)?;
+
+        let instruction = self.read_instruction(bus)?;
+        self.execute_instruction(bus, instruction)?;
+
         self.elapsed_cycles += 1;
+
         Ok(())
     }
 
@@ -158,6 +172,46 @@ impl MOS6502 {
                 return Ok(())
             }
         }
+    }
+
+    fn execute_interrupts(&mut self, bus: &mut impl Bus) -> Result<()> {
+        if self.nmi {
+            self.interrupt(bus, Interrupt::NMI)?;
+            self.nmi = false;
+        } else if self.irq {
+            self.interrupt(bus, Interrupt::IRQ)?;
+        }
+
+        Ok(())
+    }
+
+    /// Simulates maskable and non-maskable interrupts on the 6502
+    fn interrupt(&mut self, bus: &mut impl Bus, interrupt: Interrupt) -> Result<()> {
+        if interrupt.maskable() && self.p.get(StatusFlag::InterruptDisable) {
+            return Ok(())
+        }
+
+        self.read_instruction(bus)?;
+        self.read_instruction(bus)?;
+
+        // RESET decrements the stack three times but doesn't write the values to the stack.
+        if interrupt != Interrupt::RESET {
+            self.push_stack_u16(bus, self.pc);
+            self.push_stack_u8(bus, self.p.with(StatusFlag::Break, interrupt == Interrupt::BRK).0);
+        } else {
+            self.sp = self.sp.wrapping_sub(3);
+            self.wait_cycles += 3;
+        }
+
+        let target_address = bus.read_u16(interrupt.vector_address());
+        self.wait_cycles += 2;
+
+        // The InterruptDisable bit is set for all interrupts, including `RESET`
+        self.p.set(StatusFlag::InterruptDisable, true);
+
+        self.pc = target_address;
+
+        Ok(())
     }
 
     pub fn next_instruction(&self, bus: &impl Bus) -> Result<Instruction> {
@@ -272,7 +326,7 @@ impl MOS6502 {
             // System Functions
             Opcode::NOP => self.op_nop(bus, instruction),
             Opcode::RTI => self.op_return_from_interrupt(bus),
-            Opcode::BRK => panic!("BRK not yet implemented"),
+            Opcode::BRK => self.interrupt(bus, Interrupt::BRK),
         }
     }
 
@@ -461,9 +515,9 @@ impl MOS6502 {
         let mut value = self.read_register(source);
         // If we push `P` it sets `Break` to `true` for the value that is pushed to the stack
         if source == Register::P {
-            value = Status(value)
-                .with(StatusFlag::Break, true)
-                .0;
+            let mut status = Status(value);
+            status.set(StatusFlag::Break, true);
+            value = status.0
         }
 
         self.push_stack_u8(bus, value);
@@ -513,7 +567,6 @@ impl MOS6502 {
         } else {
             panic!("self.pull_stack(3) returned unexpected number of elements");
         }
-
     }
 
     fn op_branch_if(&mut self, bus: &impl Bus, instruction: Instruction, condition: bool) -> Result<()> {
@@ -729,9 +782,49 @@ mod tests {
         bus.write_u16(0xFFFC, 0xFF00);
 
         let mut cpu = MOS6502::new();
-        cpu.reset(&mut bus);
+        cpu.reset(&mut bus).expect("CPU Reset Failed");
 
         assert_eq!(cpu.pc, 0xFF00);
+    }
+
+    #[test]
+    pub fn rdy_stop_cpu_on_current_even_cycle() {
+        let program = vec![
+            0xA5, 0xBB,  // LDA $BB
+            0xA2, 0x55,  // LDX #$55
+        ];
+        let mut bus = RamBus16kb::new().with_program(program);
+
+        let mut cpu = MOS6502::new();
+        cpu.reset(&mut bus).expect("CPU Reset Failed"); // +7 cycles
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // Run the reset instructions
+
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // LDA $BB = +3 cycle (total 10)
+        cpu.rdy = false;
+
+        cpu.cycle(&mut bus).unwrap(); // Should do nothing, rdy on even cycle
+        assert_eq!(cpu.x, 0x0);
+
+        cpu.rdy = true;
+        cpu.cycle(&mut bus).unwrap(); // LDX #$55
+        assert_eq!(cpu.x, 0x55);
+    }
+
+    #[test]
+    pub fn rdy_stop_cpu_on_next_even_cycle() {
+        let program = vec![
+            0xA2, 0x55,  // LDX #$55
+        ];
+        let mut bus = RamBus16kb::new().with_program(program);
+
+        let mut cpu = MOS6502::new();
+        cpu.reset(&mut bus).expect("CPU Reset Failed"); // +7 cycles
+        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // Run the reset instructions
+
+        cpu.rdy = false;
+
+        cpu.cycle(&mut bus).unwrap(); // Should do execute, rdy on odd cycle.
+        assert_eq!(cpu.x, 0x55);
     }
 
     #[test]
@@ -744,7 +837,7 @@ mod tests {
         let mut bus = RamBus16kb::new().with_program(program);
 
         let mut cpu = MOS6502::new();
-        cpu.reset(&bus);
+        cpu.reset(&mut bus).expect("CPU Reset Failed");
         cpu.cycle_until_brk(&mut bus).unwrap();
 
         assert_eq!(cpu.a, 0xBB);
@@ -765,7 +858,7 @@ mod tests {
         let mut bus = RamBus16kb::new()
             .with_program(program);
         let mut cpu = MOS6502::new();
-        cpu.reset(&bus);
+        cpu.reset(&mut bus).expect("CPU Reset Failed");
         cpu.cycle_until_brk(&mut bus).unwrap();
 
         assert_eq!(bus.memory[0x00], 0xBE);
@@ -800,7 +893,7 @@ mod tests {
             .with_memory_at(0xF000, main_program)
             .with_memory_at(0x0200, sub_program);
         let mut cpu = MOS6502::new();
-        cpu.reset(&bus);
+        cpu.reset(&mut bus).expect("CPU Reset Failed");
         println!("{:X?}", Vec::from(&bus.memory[0x0200..0x0205]));
 
         // Pretend we already ran the reset sequence
@@ -867,7 +960,7 @@ mod tests {
         let mut bus = RamBus16kb::new()
             .with_program(program);
         let mut cpu = MOS6502::new();
-        cpu.reset(&bus);
+        cpu.reset(&mut bus).expect("CPU Reset Failed");
 
         // Cycle the reset instructions
         cpu.cycle_to_next_instruction(&mut bus).unwrap();

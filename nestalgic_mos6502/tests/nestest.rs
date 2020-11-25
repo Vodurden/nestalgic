@@ -15,7 +15,7 @@ fn nestest() {
     //
     // We still need the flag to be set by the instructions but the results should remain in binary mode.
     let mut cpu = MOS6502::new();
-    cpu.reset(&bus);
+    cpu.reset(&mut bus).expect("CPU Reset Failed");
 
     // nestest expects the program counter to be `0xC000` for automated testing. This is the usual
     // start location of NES cartridges.

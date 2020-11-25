@@ -1,4 +1,4 @@
-use super::{NMI_VECTOR_ADDRESS, INITIALIZATION_VECTOR_ADDRESS};
+use super::{NMI_VECTOR_ADDRESS, RESET_VECTOR_ADDRESS};
 
 pub trait Bus {
     fn write_u8(&mut self, address: u16, data: u8);
@@ -55,7 +55,7 @@ impl RamBus16kb {
         self.memory[program_start..program_end].copy_from_slice(&bytes[..]);
 
         // Set the initialization vector to point at our program.
-        self.write_u16(INITIALIZATION_VECTOR_ADDRESS, program_start as u16);
+        self.write_u16(RESET_VECTOR_ADDRESS, program_start as u16);
 
         self
     }
@@ -161,7 +161,7 @@ mod rambus_tests {
 
         // Remember: addresses are in little-endian so if we expect the address `0xFFF7` then
         // we check for the byte `0xED` _followed by_ `0xFF`.
-        let iv_address = INITIALIZATION_VECTOR_ADDRESS as usize;
+        let iv_address = RESET_VECTOR_ADDRESS as usize;
         assert_eq!(bus.memory[iv_address    ], 0xF7);
         assert_eq!(bus.memory[iv_address + 1], 0xFF);
     }
