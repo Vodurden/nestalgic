@@ -15,7 +15,6 @@ impl <'a> Bus for CpuBus<'a> {
         match address {
             0x4020..=0xFFFF => self.mapper.cpu_read_u8(address),
             0x2000..=0x2007 => self.ppu.read_u8(address),
-            0x4014 => self.ppu.read_u8(address),
             0x0000..=0x1FFF => self.wram[(address & 0x0800) as usize],
             _ => 0
         }
@@ -25,9 +24,9 @@ impl <'a> Bus for CpuBus<'a> {
         match address {
             0x4020..=0xFFFF => self.mapper.cpu_write_u8(address, data),
             0x2000..=0x2007 => self.ppu.write_u8(address, data),
-            0x4014 => self.ppu.write_u8(address, data),
             0x0000..=0x1FFF => self.wram[(address & 0x0800) as usize] = data,
             _ => ()
         }
     }
 }
+

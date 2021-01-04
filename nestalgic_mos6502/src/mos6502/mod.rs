@@ -1,6 +1,7 @@
 mod addressing_mode;
 mod addressable;
 mod bus;
+mod dma;
 mod opcode;
 mod instruction;
 mod error;
@@ -13,9 +14,11 @@ use opcode::Opcode;
 use error::Error;
 use register::Register;
 use interrupt::Interrupt;
+use std::collections::HashMap;
 
 pub use bus::Bus;
 pub use bus::RamBus16kb;
+pub use dma::{DMA, ActiveDMA, DMAStatus};
 pub use status::{Status, StatusFlag};
 pub use interrupt::{NMI_VECTOR_ADDRESS, IRQ_VECTOR_ADDRESS, RESET_VECTOR_ADDRESS};
 
@@ -32,6 +35,7 @@ const STACK_END_ADDRESS: u16 = 0x01FF;
 ///
 /// The NES uses a Ricoh 2A03 which is basically a MOS6502 without the decimal mode.
 /// This means this class can be used to emulate the NES.
+#[derive(Debug)]
 pub struct MOS6502 {
     /// `a` is the accumulator register. It has many uses including:
     ///
@@ -66,14 +70,6 @@ pub struct MOS6502 {
     /// ranges between `00` to `FF`
     pub sp: u8,
 
-    /// `rdy` indicates the state of the ready pin on the 6502.
-    ///
-    /// When false the processor will "freeze" at the end of the next cycle.
-    ///
-    /// The 6502 would _not_ freeze on a "read" cycle. We emulate this by deferring
-    /// the freeze from `rdy` to the next even cycle. 
-    pub rdy: bool,
-
     /// `nmi` indicates whether the non maskable interrupt line is active on the CPU.
     ///
     /// When set to true the next cycle will trigger the interrupt behavior
@@ -89,6 +85,13 @@ pub struct MOS6502 {
 
     /// The amount of cycles to wait for until performing the next instruction.
     pub wait_cycles: u32,
+
+    /// The 6502 doesn't have any direct memory access (DMA) capability by default but it's a common
+    /// requirement in embedded systems.
+    dma: HashMap<Address, DMA>,
+
+    /// Stores the current state of DMA. `None` if no DMA is happening right now.
+    active_dma: Option<ActiveDMA>,
 }
 
 impl MOS6502 {
@@ -103,12 +106,14 @@ impl MOS6502 {
             pc: 0,
             sp: 0,
 
-            rdy: true,
             nmi: false,
             irq: false,
 
             elapsed_cycles: 0,
             wait_cycles: 0,
+
+            dma: HashMap::new(),
+            active_dma: None,
         }
     }
 
@@ -125,15 +130,9 @@ impl MOS6502 {
             return Ok(())
         }
 
-        // The `rdy` pin only takes effect on the second cycle of the 6502's two
-        // phase cycle (https://retrocomputing.stackexchange.com/a/11227)
-        //
-        // To simulate this we only respect the `rdy` pin if we are on an even cycle.
-        //
-        // This behavior allows us to easily account for the even/odd cycle time for
-        // the PPU's OAMDMA in the NES since it is implemented using the `rdy` pin.
-        let cpu_not_ready = !self.rdy && self.elapsed_cycles % 2 == 0;
-        if cpu_not_ready {
+        let dma_status = self.step_active_dma(bus);
+        if dma_status == DMAStatus::Active {
+            self.elapsed_cycles += 1;
             return Ok(())
         }
 
@@ -145,6 +144,36 @@ impl MOS6502 {
         self.elapsed_cycles += 1;
 
         Ok(())
+    }
+
+    pub fn with_dma(mut self, dma: DMA) -> MOS6502 {
+        self.dma.insert(dma.trigger_address, dma);
+        self
+    }
+
+    pub fn step_active_dma(&mut self, bus: &mut impl Bus) -> DMAStatus {
+        if let Some(active_dma) = &mut self.active_dma {
+            let source_address = active_dma.start_address + active_dma.bytes_transferred;
+            let target_address = active_dma.target_address;
+            active_dma.bytes_transferred += 1;
+
+            if active_dma.bytes_transferred >= active_dma.bytes_to_transfer {
+                self.active_dma = None;
+            }
+
+            // We read straight from the bus since dma ignores the usual
+            // CPU timings.
+            let byte = bus.read_u8(source_address);
+            bus.write_u8(target_address, byte);
+
+            // We only need one additional `wait_cycle` for the write since
+            // the read is part of this cycle.
+            self.wait_cycles += 1;
+
+            DMAStatus::Active
+        } else {
+            DMAStatus::Inactive
+        }
     }
 
     /// Cycle the CPU until we hit a BRK (opcode 0).
@@ -234,11 +263,27 @@ impl MOS6502 {
     fn read_u8(&mut self, bus: &impl Bus, address: Address) -> u8 {
         let byte = bus.read_u8(address);
         self.wait_cycles += 1;
+
         byte
     }
 
     fn write_u8(&mut self, bus: &mut impl Bus, address: Address, value: u8) {
-        bus.write_u8(address, value);
+        if let Some(dma) = self.dma.get(&address) {
+            self.active_dma = Some(ActiveDMA::from_dma(dma, (value as u16) << 8));
+
+            // Normally writing to the dma port takes 1 cycle. But it costs an extra
+            // cycle if the CPU is executing on an odd cycle count.
+            //
+            // In hardware this is caused by the behavior of the `rdy` pin but we
+            // cheat and just add the correct number of wait cycles.
+            self.wait_cycles += 1;
+            if self.elapsed_cycles % 2 != 0 {
+                self.wait_cycles += 1;
+            }
+        } else {
+            bus.write_u8(address, value);
+        }
+
         self.wait_cycles += 1;
     }
 
@@ -434,8 +479,7 @@ impl MOS6502 {
         let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
-        let (value, read_cycles) = addressable.read(self, bus);
-        self.wait_cycles += read_cycles;
+        let value = addressable.read(self, bus);
 
         Ok(value)
     }
@@ -444,8 +488,7 @@ impl MOS6502 {
         let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
-        let write_cycles = addressable.try_write(self, bus, value)?;
-        self.wait_cycles += write_cycles;
+        addressable.try_write(self, bus, value)?;
 
         Ok(())
     }
@@ -459,8 +502,7 @@ impl MOS6502 {
         let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
-        let (input, output, modify_cycles) = addressable.try_modify(self, bus, f)?;
-        self.wait_cycles += modify_cycles;
+        let (input, output) = addressable.try_modify(self, bus, f)?;
 
         Ok((input, output))
     }
@@ -788,46 +830,6 @@ mod tests {
     }
 
     #[test]
-    pub fn rdy_stop_cpu_on_current_even_cycle() {
-        let program = vec![
-            0xA5, 0xBB,  // LDA $BB
-            0xA2, 0x55,  // LDX #$55
-        ];
-        let mut bus = RamBus16kb::new().with_program(program);
-
-        let mut cpu = MOS6502::new();
-        cpu.reset(&mut bus).expect("CPU Reset Failed"); // +7 cycles
-        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // Run the reset instructions
-
-        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // LDA $BB = +3 cycle (total 10)
-        cpu.rdy = false;
-
-        cpu.cycle(&mut bus).unwrap(); // Should do nothing, rdy on even cycle
-        assert_eq!(cpu.x, 0x0);
-
-        cpu.rdy = true;
-        cpu.cycle(&mut bus).unwrap(); // LDX #$55
-        assert_eq!(cpu.x, 0x55);
-    }
-
-    #[test]
-    pub fn rdy_stop_cpu_on_next_even_cycle() {
-        let program = vec![
-            0xA2, 0x55,  // LDX #$55
-        ];
-        let mut bus = RamBus16kb::new().with_program(program);
-
-        let mut cpu = MOS6502::new();
-        cpu.reset(&mut bus).expect("CPU Reset Failed"); // +7 cycles
-        cpu.cycle_to_next_instruction(&mut bus).unwrap(); // Run the reset instructions
-
-        cpu.rdy = false;
-
-        cpu.cycle(&mut bus).unwrap(); // Should do execute, rdy on odd cycle.
-        assert_eq!(cpu.x, 0x55);
-    }
-
-    #[test]
     pub fn op_load_immediate() {
         let program = vec![
             0xA9, 0xBB,  // LDA #$BB
@@ -1003,5 +1005,119 @@ mod tests {
         cpu.cycle_to_next_instruction(&mut bus).unwrap();
         assert_eq!(cpu.sp, 0xFF);
         assert_eq!(cpu.a, 0xE0);
+    }
+
+    /// When the NES executes a DMA on an even CPU cycle we expect
+    #[test]
+    pub fn nes_style_ppu_dma_on_odd_cycle() {
+        let program = vec![
+            // Write 0x02 to 0x4014 to trigger DMA from
+            // 0x0200-0x02FF
+            0xA2, 0x02,       // LDX #$02
+            0x8E, 0x14, 0x40, // STX $4014
+
+            // Do something after the DMA to make sure resuming
+            // still works
+            0xA9, 0xE0,  // LDA #$E0
+        ];
+
+        // We want to see this data be copied from `0x0200` to
+        // 0x2004.
+        let oam_data: Vec<u8> = (0..=255).collect();
+        print!("oam_data: ");
+        oam_data.iter().for_each(|x| print!("{} ", x));
+        println!("");
+        println!("oam_data len: {}", oam_data.len());
+
+        let mut bus = RamBus16kb::new()
+            .with_program(program)
+            .with_memory_at(0x0200, oam_data.clone());
+
+        print!("bus_data: ");
+        bus.memory[0x0200..0x02FF].iter().for_each(|x| print!("{} ", x));
+        println!("");
+
+        let nes_dma = DMA {
+            trigger_address: 0x4014,
+            target_address: 0x2004,
+            bytes_to_transfer: 256,
+        };
+
+        let mut cpu = MOS6502::new().with_dma(nes_dma);
+        cpu.reset(&mut bus).expect("CPU Reset Failed");
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        println!("cpu: {:?}", cpu);
+
+        // Step 1: Trigger the DMA
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        println!("cpu: {:?}", cpu);
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        println!("cpu: {:?}", cpu);
+
+        // - +7 cycles for reset
+        // - +2 cycles for immediate LDX
+        // - +4 cycles for absolute STX
+        // - +2 cycles to start DMA on an odd cycle
+        assert_eq!(cpu.elapsed_cycles, 15);
+
+        // Step 2: Make sure each write to `0x2004` is what we expect.
+        for byte in oam_data {
+            cpu.cycle(&mut bus).unwrap();
+            cpu.cycle(&mut bus).unwrap();
+            assert_eq!(bus.memory[0x2004], byte);
+            println!("cpu: {:?}", cpu);
+        }
+
+        // Step 3: Make sure the elapsed time is correct.
+        //
+        // We expect:
+        //
+        // - +7 cycles for reset
+        // - +2 cycles for immediate LDX
+        // - +4 cycles for absolute STX
+        // - +2 cycles to start DMA on an odd cycle
+        // - +512 cycles for DMA transfer
+        assert_eq!(cpu.elapsed_cycles, 514 + 13);
+
+        // Step 4: Make sure we resume instructions correctly after DMA finishes.
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        assert_eq!(cpu.a, 0xE0);
+    }
+
+    /// When the NES executes a DMA on an even CPU cycle we expect
+    #[test]
+    pub fn nes_style_ppu_dma_on_even_cycle() {
+        let program = vec![
+            // Write 0x02 to 0x4014 to trigger DMA from
+            // 0x0200-0x02FF
+            0xA2, 0x02,       // LDX #$02    (+2 cycles)
+            0xA4, 0x00,       // LDY $00     (+3 cycles, to make cycle count even)
+            0x8E, 0x14, 0x40, // STX $4014   (+4 cycles)
+        ];
+
+        let mut bus = RamBus16kb::new()
+            .with_program(program);
+
+        let nes_dma = DMA {
+            trigger_address: 0x4014,
+            target_address: 0x2004,
+            bytes_to_transfer: 256,
+        };
+
+        let mut cpu = MOS6502::new().with_dma(nes_dma);
+        cpu.reset(&mut bus).expect("CPU Reset Failed");
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+
+        // Step 1: Trigger the DMA
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+        cpu.cycle_to_next_instruction(&mut bus).unwrap();
+
+        // - +7 cycles for reset
+        // - +2 cycles for immediate LDX
+        // - +3 cycles for zero page LDY
+        // - +4 cycles for absolute STX
+        // - +1 cycles to start DMA on an odd cycle
+        assert_eq!(cpu.elapsed_cycles, 17);
     }
 }

@@ -3,7 +3,7 @@ mod rp2c02;
 mod mapper;
 
 pub use nestalgic_rom::nesrom::NESROM;
-use nestalgic_mos6502::mos6502::MOS6502;
+use nestalgic_mos6502::mos6502::{MOS6502, DMA};
 use rp2c02::{RP2C02, Pixel};
 use mapper::Mapper;
 use cpu_bus::CpuBus;
@@ -31,7 +31,7 @@ impl Nestalgic {
 
     pub fn new() -> Nestalgic {
         Nestalgic {
-            cpu: MOS6502::new(),
+            cpu: Nestalgic::nes_cpu(),
             wram: [0; 2048],
             ppu: RP2C02::new(),
             mapper: Box::new(mapper::NullMapper::new()),
@@ -41,14 +41,24 @@ impl Nestalgic {
         }
     }
 
+    fn nes_cpu() -> MOS6502 {
+        let nes_dma = DMA {
+            trigger_address: 0x4014,
+            target_address: 0x2004,
+            bytes_to_transfer: 256,
+        };
+
+        MOS6502::new().with_dma(nes_dma)
+    }
+
     pub fn with_rom(mut self, rom: NESROM) -> Self {
         self.mapper = Mapper::from_rom(rom);
-        let cpu_bus = CpuBus {
+        let mut cpu_bus = CpuBus {
             wram: &mut self.wram,
             ppu: &mut self.ppu,
             mapper: &mut *self.mapper
         };
-        self.cpu.reset(&cpu_bus);
+        self.cpu.reset(&mut cpu_bus).expect("Failed to reset CPU");
         self
     }
 

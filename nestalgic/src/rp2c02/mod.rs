@@ -1,11 +1,22 @@
 mod pixel;
+mod ppuctrl;
+mod ppumask;
 
 use crate::mapper::Mapper;
+
+pub use ppuctrl::PPUCtrl;
+pub use ppumask::PPUMask;
 pub use pixel::Pixel;
 
 /// `RP2C02` emulates the NES PPU (a.k.a the `RP2C02`)
 pub struct RP2C02 {
     pub pixels: [Pixel; RP2C02::SCREEN_PIXELS],
+
+    pub ppuctrl: PPUCtrl,
+
+    pub oam_addr: u16,
+
+    pub oam_data: [u8; 256],
 
     // TODO: https://wiki.nesdev.com/w/index.php/PPU_memory_map
     //
@@ -33,7 +44,10 @@ impl RP2C02 {
 
     pub fn new() -> RP2C02 {
         RP2C02 {
-            pixels: [Pixel::empty(); RP2C02::SCREEN_PIXELS]
+            pixels: [Pixel::empty(); RP2C02::SCREEN_PIXELS],
+            ppuctrl: PPUCtrl::default(),
+            oam_addr: 0,
+            oam_data: [0; 256],
         }
     }
 
@@ -82,8 +96,11 @@ impl RP2C02 {
     /// - `0x4014`
     ///
     /// Reads from other addresses will cause a panic
-    pub fn read_u8(&self, _address: u16) -> u8 {
-        0
+    pub fn read_u8(&self, address: u16) -> u8 {
+        match address {
+            0x2000 => self.ppuctrl.0,
+            _ => 0
+        }
     }
 
     /// Write to the RP2C02 io mapped registers.
@@ -94,6 +111,7 @@ impl RP2C02 {
     /// - `0x4014`
     ///
     /// Writes to other addresses will cause a panic
-    pub fn write_u8(&mut self, _address: u16, _data: u8) {
+    pub fn write_u8(&mut self, address: u16, data: u8) {
+        println!("ppu_write: {:X} = {:X}", address, data);
     }
 }

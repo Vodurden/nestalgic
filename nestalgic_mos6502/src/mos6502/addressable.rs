@@ -37,34 +37,33 @@ impl Addressable {
         Ok(address)
     }
 
-    pub fn read(&self, cpu: &MOS6502, bus: &impl Bus) -> (u8, CyclesTaken) {
+    pub fn read(&self, cpu: &mut MOS6502, bus: &impl Bus) -> u8 {
         match self.target {
-            AddressableTarget::Accumulator => (cpu.a, 0),
-            AddressableTarget::Immediate(value) => (value, 0),
+            AddressableTarget::Accumulator => cpu.a,
+            AddressableTarget::Immediate(value) => value,
             AddressableTarget::Memory(address) => {
-                let value = bus.read_u8(address);
-                let mut cycles_taken = 1; // read bus: +1 cycle
+                let value = cpu.read_u8(bus, address);
 
                 // If the page boundary was crossed the 6502 re-reads the memory location after
                 // swapping the page. This costs a cycle
                 if self.page_boundary_crossed {
-                    cycles_taken += 1;
+                    cpu.wait_cycles += 1;
                 }
 
-                (value, cycles_taken)
+                value
             }
         }
     }
 
-    pub fn try_write(&self, cpu: &mut MOS6502, bus: &mut impl Bus, value: u8) -> Result<CyclesTaken> {
+    pub fn try_write(&self, cpu: &mut MOS6502, bus: &mut impl Bus, value: u8) -> Result<()> {
         match self.target {
             AddressableTarget::Immediate(_) => Err(Error::InvalidAddressableWrite(self.target, value)),
             AddressableTarget::Accumulator => {
                 cpu.write_register(Register::A, value);
-                Ok(0)
+                Ok(())
             }
             AddressableTarget::Memory(address) => {
-                bus.write_u8(address, value);
+                cpu.write_u8(bus, address, value);
 
                 let indirection_cycles = match self.addressing {
                     Addressing::AbsoluteX(_) => 1,
@@ -73,7 +72,8 @@ impl Addressable {
                     _ => 0
                 };
 
-                Ok(indirection_cycles + 1)
+                cpu.wait_cycles += indirection_cycles;
+                Ok(())
             }
         }
     }
@@ -83,7 +83,7 @@ impl Addressable {
         cpu: &mut MOS6502,
         bus: &mut impl Bus,
         f: impl FnOnce(u8) -> u8
-    ) -> Result<(u8, u8, CyclesTaken)> {
+    ) -> Result<(u8, u8)> {
         // At first glance you might think we can write this function in terms of `read` and `try_write`.
         //
         // Think again!
@@ -95,7 +95,7 @@ impl Addressable {
         //   read when modifying
         //
         // Let's save ourselves the pain and just implement modify directly.
-        let (input, output, modify_cycles) = match self.target {
+        let (input, output) = match self.target {
             AddressableTarget::Immediate(_) => Err(Error::InvalidAddressableModify(self.target)),
 
             AddressableTarget::Accumulator => {
@@ -103,32 +103,29 @@ impl Addressable {
                 let output = f(cpu.a);
                 cpu.write_register(Register::A, output);
 
-                Ok((input, output, 0))
+                Ok((input, output))
             },
 
             AddressableTarget::Memory(address) => {
-                let input = bus.read_u8(address);
-                let mut read_cycles = 1; // read bus: +1 cycle
+                let input = cpu.read_u8(bus, address);
 
                 // For `AbsoluteX`, `AbsoluteY` and `IndirectIndexed` the 6502 reads the value twice before
                 // performing the operations, incurring an extra cycle cost
                 match self.addressing {
-                    Addressing::AbsoluteX(_) => read_cycles += 1,
-                    Addressing::AbsoluteY(_) => read_cycles += 1,
-                    Addressing::IndirectIndexed(_) => read_cycles += 1,
+                    Addressing::AbsoluteX(_) => cpu.wait_cycles += 1,
+                    Addressing::AbsoluteY(_) => cpu.wait_cycles += 1,
+                    Addressing::IndirectIndexed(_) => cpu.wait_cycles += 1,
                     _ => {},
                 };
 
                 let output = f(input);
 
-                bus.write_u8(address, output);
-                let mut write_cycles = 1; // write bus: +1 cycle
+                cpu.write_u8(bus, address, output);
 
                 // The 6502 actually writes the result twice when modifying, incurring an extra cycle
-                bus.write_u8(address, output);
-                write_cycles += 1; // write bus: +1 cycle
+                cpu.write_u8(bus, address, output);
 
-                Ok((input, output, read_cycles + write_cycles))
+                Ok((input, output))
             },
         }?;
 
@@ -137,6 +134,6 @@ impl Addressable {
         cpu.p.set(StatusFlag::Zero, output == 0);
         cpu.p.set(StatusFlag::Negative, output & 0b1000_0000 > 0);
 
-        Ok((input, output, modify_cycles))
+        Ok((input, output))
     }
 }
