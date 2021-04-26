@@ -10,8 +10,7 @@ in
 
 pkgs.mkShell {
   nativeBuildInputs = with pkgs; [
-    rustc
-    cargo
+    rust
 
     rustfmt
     unstable.rust-analyzer
@@ -35,6 +34,7 @@ pkgs.mkShell {
     xlibs.libXrandr
   ];
 
+  # export RUST_SRC_PATH="${rust.rust-src}/lib/rustlib/src/rust/src"
   shellHook = ''
     export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$APPEND_LIBRARY_PATH"
   '';
