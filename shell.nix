@@ -3,26 +3,27 @@ let
   pkgs = import sources.nixpkgs { overlays = [(import sources.nixpkgs-mozilla)]; };
   unstable = import sources.nixpkgs-unstable {};
 
-  rust = pkgs.rustChannelOfTargets "stable" null [];
+  # rust = pkgs.rustChannelOfTargets "stable" null [];
+  rustChannel = pkgs.rustChannelOf { channel = "stable"; };
 
   nestalgic = import ./default.nix {};
 in
 
 pkgs.mkShell {
-  nativeBuildInputs = with pkgs; [
-    rust
+  nativeBuildInputs = [
+    rustChannel.rust
 
-    rustfmt
-    unstable.rust-analyzer
+    pkgs.rustfmt
+    # unstable.rust-analyzer
 
     # Library dependencies:
-    pkgconfig
+    pkgs.pkgconfig
   ];
 
-  buildInputs = with pkgs; [
-    xlibs.libX11
+  buildInputs = [
+    pkgs.xlibs.libX11
 
-    graphviz
+    pkgs.graphviz
   ];
 
   APPEND_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
@@ -34,8 +35,8 @@ pkgs.mkShell {
     xlibs.libXrandr
   ];
 
-  # export RUST_SRC_PATH="${rust.rust-src}/lib/rustlib/src/rust/src"
   shellHook = ''
+    export RUST_SRC_PATH="${rustChannel.rust-src}/lib/rustlib/src/rust/src"
     export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$APPEND_LIBRARY_PATH"
   '';
 
