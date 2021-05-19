@@ -2,7 +2,7 @@
 
 let
   sources = import nix/sources.nix;
-  hostPkgs = import sources.nixpkgs { overlays = [(import sources.nixpkgs-mozilla)]; };
+  hostPkgs = import sources.nixpkgs { overlays = [(import sources.rust-overlay)]; };
 
   # Target packages _don't_ import the mozilla-nixpkgs overlay as it overrides `buildRustPackage` with
   # a variant that doesn't respect the `target` attribute.

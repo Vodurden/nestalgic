@@ -46,5 +46,17 @@
         "type": "tarball",
         "url": "https://github.com/NixOS/nixpkgs-channels/archive/4762fba469e2baa82f983b262e2c06ac2fdaae67.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "rust-overlay": {
+        "branch": "master",
+        "description": "Pure and reproducible nix overlay for binary distributed rust toolchains",
+        "homepage": "",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "45b4f9e6ab5a16e4fade1893b17d16835a575593",
+        "sha256": "0kwmibfnagcarw7hsp209yxyz040rlbrn7gr52vykwzw7ivrhxvk",
+        "type": "tarball",
+        "url": "https://github.com/oxalica/rust-overlay/archive/45b4f9e6ab5a16e4fade1893b17d16835a575593.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
