@@ -1,3 +1,4 @@
+use nestalgic::Nestalgic;
 use pixels::{wgpu, PixelsContext};
 use std::time::Instant;
 use crate::nes_chr_debug::NesChrDebug;
@@ -61,7 +62,7 @@ impl Gui {
         let mut renderer = imgui_wgpu::Renderer::new(&mut imgui, &device, &queue, config);
 
         // Create sub-windows
-        let nes_chr_debug = NesChrDebug::new(&device, &queue, &mut renderer);
+        let nes_chr_debug = NesChrDebug::new(&device, &mut renderer);
 
         // Return GUI context
         Self {
@@ -95,6 +96,7 @@ impl Gui {
         encoder: &mut wgpu::CommandEncoder,
         render_target: &wgpu::TextureView,
         context: &PixelsContext,
+        nestalgic: &Nestalgic
     ) -> imgui_wgpu::RendererResult<()> {
         // Start a new Dear ImGui frame and update the cursor
         let ui = self.imgui.frame();
@@ -120,7 +122,7 @@ impl Gui {
             ui.show_about_window(&mut self.about_open);
         }
 
-        self.nes_chr_debug.render(&ui);
+        self.nes_chr_debug.render(&ui, &context.queue, &mut self.renderer, nestalgic);
 
         // Render Dear ImGui with WGPU
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

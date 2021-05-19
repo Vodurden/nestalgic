@@ -1,4 +1,5 @@
 mod pixel;
+mod texture;
 mod ppuctrl;
 mod ppumask;
 
@@ -7,6 +8,7 @@ use crate::mapper::Mapper;
 pub use ppuctrl::PPUCtrl;
 pub use ppumask::PPUMask;
 pub use pixel::Pixel;
+pub use texture::Texture;
 
 /// `RP2C02` emulates the NES PPU (a.k.a the `RP2C02`)
 pub struct RP2C02 {

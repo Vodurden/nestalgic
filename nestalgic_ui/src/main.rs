@@ -8,6 +8,7 @@ mod nes_chr_debug;
 use crate::gui::Gui;
 use crate::world::World;
 use log::error;
+use nestalgic::{NESROM, Nestalgic};
 use pixels::{Error, Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
@@ -17,10 +18,14 @@ use winit_input_helper::WinitInputHelper;
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
-const BOX_SIZE: i16 = 64;
 
 fn main() -> Result<(), Error> {
     env_logger::init();
+
+    let rom_file = include_bytes!("../../roms/donkey-kong.nes").to_vec();
+    let rom = NESROM::from_bytes(rom_file).expect("Failed to load ROM");
+    let nestalgic = Nestalgic::new().with_rom(rom);
+
     let event_loop = EventLoop::new();
     let mut input = WinitInputHelper::new();
     let window = {
@@ -40,6 +45,7 @@ fn main() -> Result<(), Error> {
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
+
     let mut world = World::new(WIDTH, HEIGHT);
 
     // Set up Dear ImGui
@@ -60,7 +66,7 @@ fn main() -> Result<(), Error> {
                 context.scaling_renderer.render(encoder, render_target);
 
                 // Render Dear ImGui
-                gui.render(&window, encoder, render_target, context)
+                gui.render(&window, encoder, render_target, context, &nestalgic)
                     .expect("gui.render() failed");
             });
 
@@ -105,4 +111,3 @@ fn main() -> Result<(), Error> {
         }
     });
 }
-

@@ -1,16 +1,17 @@
-use imgui::{im_str, Ui, Image, TextureId, Condition};
+use imgui::{Condition, ImStr, ImString, Image, TextureId, Ui, im_str};
 use imgui_wgpu::{Renderer, RendererConfig, Texture, TextureConfig};
+use nestalgic::Nestalgic;
 use wgpu::{Queue, Device, Extent3d};
 
 pub struct NesChrDebug {
     chr_texture_id: TextureId
 }
 
-const WIDTH: usize = 256;
-const HEIGHT: usize = 256;
+const WIDTH: usize = 128;
+const HEIGHT: usize = 128;
 
 impl NesChrDebug {
-    pub fn new(device: &Device, queue: &Queue, renderer: &mut Renderer) -> NesChrDebug {
+    pub fn new(device: &Device, renderer: &mut Renderer) -> NesChrDebug {
         let texture_config = TextureConfig {
             size: Extent3d {
                 width: WIDTH as u32,
@@ -22,10 +23,6 @@ impl NesChrDebug {
         };
 
         let chr_texture = Texture::new(&device, &renderer, texture_config);
-
-        // `pixels` is RGBA so 4 bytes per pixel
-        let pixels: [u8; WIDTH * HEIGHT * 4] = [100; WIDTH * HEIGHT * 4];
-        chr_texture.write(&queue, &pixels, WIDTH as u32, HEIGHT as u32);
         let chr_texture_id = renderer.textures.insert(chr_texture);
 
         NesChrDebug {
@@ -33,13 +30,19 @@ impl NesChrDebug {
         }
     }
 
-    pub fn render(&mut self, ui: &Ui) {
+    pub fn render(&mut self, ui: &Ui, queue: &Queue, renderer: &mut Renderer, nestalgic: &Nestalgic) {
         let window = imgui::Window::new(im_str!("Nes CHR Debug"));
+
+        let nes_texture = nestalgic.pattern_table();
+        if let Some(chr_texture) = renderer.textures.get(self.chr_texture_id) {
+            let wgpu_texture_data = nes_texture.to_rgba();
+            chr_texture.write(&queue, &wgpu_texture_data, WIDTH as u32, HEIGHT as u32);
+        }
 
         window
             .size([WIDTH as f32, HEIGHT as f32], Condition::FirstUseEver)
             .build(&ui, || {
-                Image::new(self.chr_texture_id, [WIDTH as f32, HEIGHT as f32]).build(&ui);
+                Image::new(self.chr_texture_id, [(WIDTH * 4) as f32, (HEIGHT * 4) as f32]).build(&ui);
             });
     }
 }

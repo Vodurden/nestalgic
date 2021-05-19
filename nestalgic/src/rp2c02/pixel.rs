@@ -18,4 +18,11 @@ impl Pixel {
     pub fn into_rgba(&self) -> [u8; 4] {
         [self.red, self.green, self.blue, self.alpha]
     }
+
+    pub fn into_texture(pixels: &[Pixel]) -> Vec<u8> {
+        pixels
+            .into_iter()
+            .flat_map(|pixel| pixel.into_rgba().iter().cloned().collect::<Vec<u8>>())
+            .collect()
+    }
 }
