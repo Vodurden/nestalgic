@@ -20,8 +20,8 @@ pub struct NestalgicUI {
 }
 
 impl NestalgicUI {
-    const WIDTH: u32 = 650;
-    const HEIGHT: u32 = 480;
+    const WIDTH: u32 = 256;
+    const HEIGHT: u32 = 240;
 
     pub fn new(
         nestalgic: Nestalgic,

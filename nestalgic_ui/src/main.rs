@@ -4,6 +4,7 @@
 mod ui;
 mod nes_chr_debug;
 mod nestalgic_ui;
+mod ext;
 
 use anyhow::{Result, Context};
 use log::error;
@@ -15,8 +16,8 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
-const WIDTH: u32 = 640;
-const HEIGHT: u32 = 480;
+const WIDTH: u32 = 1280;
+const HEIGHT: u32 = 960;
 
 fn main() -> Result<()> {
     env_logger::init();
