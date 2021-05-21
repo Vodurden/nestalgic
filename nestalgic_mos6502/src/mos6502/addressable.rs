@@ -1,4 +1,4 @@
-use super::{Address, CyclesTaken, Result, MOS6502, Register};
+use super::{Address, Result, MOS6502, Register};
 use super::bus::Bus;
 use super::addressing_mode::Addressing;
 use super::error::Error;

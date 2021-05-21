@@ -29,7 +29,7 @@ pub type BytesUsed = u16;
 pub type CyclesTaken = u32;
 
 const STACK_START_ADDRESS: u16 = 0x0100;
-const STACK_END_ADDRESS: u16 = 0x01FF;
+// const STACK_END_ADDRESS: u16 = 0x01FF;
 
 /// `MOS6502` emulates the functionality of the MOS Technology 6502 microprocessor.
 ///

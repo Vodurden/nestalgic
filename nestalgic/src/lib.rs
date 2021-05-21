@@ -58,7 +58,7 @@ impl Nestalgic {
     }
 
     pub fn with_rom(mut self, rom: NESROM) -> Self {
-        self.mapper = Mapper::from_rom(rom);
+        self.mapper = <dyn Mapper>::from_rom(rom);
         let mut cpu_bus = CpuBus {
             wram: &mut self.wram,
             ppu: &mut self.ppu,
