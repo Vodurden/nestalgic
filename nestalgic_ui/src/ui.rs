@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Result, Context};
 use nestalgic::Nestalgic;
+use imgui::Ui;
 
 use crate::nes_chr_debug::NesChrDebug;
 
@@ -96,6 +97,7 @@ impl UI {
     ) -> Result<()> {
         let ui = self.imgui.frame();
 
+        UI::render_menu(&ui, &mut self.nes_chr_debug);
         self.nes_chr_debug.render(&ui, nestalgic, wgpu_queue, &mut self.imgui_renderer);
 
         // Render Dear ImGui with WGPU
@@ -115,6 +117,15 @@ impl UI {
         self.imgui_renderer
             .render(ui.render(), wgpu_queue, wgpu_device, &mut rpass)
             .context("imgui render failed")
+    }
+
+    fn render_menu(ui: &Ui, nes_chr_debug: &mut NesChrDebug) {
+        ui.main_menu_bar(|| {
+            ui.menu(imgui::im_str!("Debug"), true, || {
+                imgui::MenuItem::new(imgui::im_str!("CHR Debug"))
+                    .build_with_ref(&ui, &mut nes_chr_debug.open);
+            });
+        })
     }
 }
 

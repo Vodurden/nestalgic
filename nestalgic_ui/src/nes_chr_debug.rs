@@ -5,6 +5,8 @@ use wgpu::{Device, Extent3d, Queue};
 use crate::ext::imgui_wgpu::TextureExt;
 
 pub struct NesChrDebug {
+    pub open: bool,
+
     chr_texture_id: TextureId
 }
 
@@ -29,6 +31,7 @@ impl NesChrDebug {
         let chr_texture_id = renderer.textures.insert(chr_texture);
 
         NesChrDebug {
+            open: true,
             chr_texture_id
         }
     }
@@ -40,6 +43,8 @@ impl NesChrDebug {
         wgpu_queue: &Queue,
         imgui_renderer: &mut Renderer
     ) {
+        if !self.open { return; }
+
         let window = imgui::Window::new(im_str!("Nes CHR Debug"));
 
         let nes_texture = nestalgic.pattern_table();
@@ -50,8 +55,10 @@ impl NesChrDebug {
 
         let style = ui.push_style_var(WindowPadding([10.0, 10.0]));
 
+        let chr_texture_id = self.chr_texture_id;
         window
             .size([(WIDTH * DEFAULT_SCALE) as f32, (WIDTH * DEFAULT_SCALE) as f32], Condition::FirstUseEver)
+            .opened(&mut self.open)
             .build(&ui, || {
                 let window_size = ui.window_size();
                 let content_region = ui.content_region_avail();
@@ -65,7 +72,7 @@ impl NesChrDebug {
 
                 ui.set_cursor_pos(image_position);
 
-                Image::new(self.chr_texture_id, image_width).build(&ui);
+                Image::new(chr_texture_id, image_width).build(&ui);
 
             });
 
