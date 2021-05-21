@@ -1,5 +1,5 @@
-use imgui::{Condition, ImStr, ImString, Image, TextureId, Ui, im_str};
-use imgui_wgpu::{Renderer, RendererConfig, Texture, TextureConfig};
+use imgui::{Condition, Image, TextureId, Ui, im_str};
+use imgui_wgpu::{Renderer, Texture, TextureConfig};
 use nestalgic::Nestalgic;
 use wgpu::{Queue, Device, Extent3d};
 
@@ -30,13 +30,19 @@ impl NesChrDebug {
         }
     }
 
-    pub fn render(&mut self, ui: &Ui, queue: &Queue, renderer: &mut Renderer, nestalgic: &Nestalgic) {
+    pub fn render(
+        &mut self,
+        ui: &Ui,
+        nestalgic: &Nestalgic,
+        wgpu_queue: &Queue,
+        wgpu_renderer: &mut Renderer
+    ) {
         let window = imgui::Window::new(im_str!("Nes CHR Debug"));
 
         let nes_texture = nestalgic.pattern_table();
-        if let Some(chr_texture) = renderer.textures.get(self.chr_texture_id) {
+        if let Some(chr_texture) = wgpu_renderer.textures.get(self.chr_texture_id) {
             let wgpu_texture_data = nes_texture.to_rgba();
-            chr_texture.write(&queue, &wgpu_texture_data, WIDTH as u32, HEIGHT as u32);
+            chr_texture.write(&wgpu_queue, &wgpu_texture_data, WIDTH as u32, HEIGHT as u32);
         }
 
         window
