@@ -4,14 +4,15 @@ use anyhow::{Result, Context};
 use nestalgic::Nestalgic;
 use imgui::Ui;
 
-use crate::nes_chr_debug::NesChrDebug;
+use crate::nes_texture_debug::NesTextureWindow;
 
 pub struct UI {
     imgui: imgui::Context,
     imgui_platform: imgui_winit_support::WinitPlatform,
     imgui_renderer: imgui_wgpu::Renderer,
 
-    nes_chr_debug: NesChrDebug,
+    chr_left_window: NesTextureWindow,
+    chr_right_window: NesTextureWindow,
 }
 
 impl UI {
@@ -59,14 +60,21 @@ impl UI {
             &mut imgui, wgpu_device, wgpu_queue, config
         );
 
-        let nes_chr_debug = NesChrDebug::new(wgpu_device, &mut imgui_renderer);
+        let chr_left_window = NesTextureWindow::new_chr_left_window(
+            wgpu_device, &mut imgui_renderer
+        );
+
+        let chr_right_window = NesTextureWindow::new_chr_right_window(
+            wgpu_device, &mut imgui_renderer
+        );
 
         UI {
             imgui,
             imgui_platform,
             imgui_renderer,
 
-            nes_chr_debug,
+            chr_left_window,
+            chr_right_window,
         }
     }
 
@@ -97,8 +105,13 @@ impl UI {
     ) -> Result<()> {
         let ui = self.imgui.frame();
 
-        UI::render_menu(&ui, &mut self.nes_chr_debug);
-        self.nes_chr_debug.render(&ui, nestalgic, wgpu_queue, &mut self.imgui_renderer);
+        UI::render_menu(
+            &ui,
+            &mut self.chr_left_window,
+            &mut self.chr_right_window,
+        );
+        self.chr_left_window.render(&ui, nestalgic, wgpu_queue, &mut self.imgui_renderer);
+        self.chr_right_window.render(&ui, nestalgic, wgpu_queue, &mut self.imgui_renderer);
 
         // Render Dear ImGui with WGPU
         let mut rpass = wgpu_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -119,11 +132,17 @@ impl UI {
             .context("imgui render failed")
     }
 
-    fn render_menu(ui: &Ui, nes_chr_debug: &mut NesChrDebug) {
+    fn render_menu(
+        ui: &Ui,
+        chr_left_window: &mut NesTextureWindow,
+        chr_right_window: &mut NesTextureWindow,
+    ) {
         ui.main_menu_bar(|| {
             ui.menu(imgui::im_str!("Debug"), true, || {
-                imgui::MenuItem::new(imgui::im_str!("CHR Debug"))
-                    .build_with_ref(&ui, &mut nes_chr_debug.open);
+                imgui::MenuItem::new(imgui::im_str!("CHR Left"))
+                    .build_with_ref(&ui, &mut chr_left_window.open);
+                imgui::MenuItem::new(imgui::im_str!("CHR Right"))
+                    .build_with_ref(&ui, &mut chr_right_window.open);
             });
         })
     }

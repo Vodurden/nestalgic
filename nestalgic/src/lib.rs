@@ -98,53 +98,19 @@ impl Nestalgic {
         &self.ppu.pixels
     }
 
-    pub fn pattern_table(&self) -> Texture {
+    pub fn pattern_table_left(&self) -> Texture {
         let chr_data = (0..=0x0FFF)
             .map(|a| self.mapper.ppu_read_u8(a as u16))
             .collect::<Vec<u8>>();
 
         Texture::from_bitplanes(&chr_data, 16, 128, 128)
+    }
 
-        // let chr_bytes = Nestalgic::merge_bitplanes(&chr_data, 16);
-        // let pixels: Vec<Pixel> = chr_bytes.iter().map(|chr_byte| {
-        //     match chr_byte {
-        //         0 => Pixel::empty(),
-        //         1 => Pixel::new(255, 0, 0, 255),
-        //         2 => Pixel::new(0, 255, 0, 255),
-        //         3 => Pixel::new(0, 0, 255, 255),
-        //         _ => Pixel::new(255, 0, 255, 255)
-        //     }
-        // }).collect();
+    pub fn pattern_table_right(&self) -> Texture {
+        let chr_data = (0x1000..=0x1FFF)
+            .map(|a| self.mapper.ppu_read_u8(a as u16))
+            .collect::<Vec<u8>>();
 
-        // //let pixels: Vec<Pixel> = [Pixel::empty(); 128 * 128].into();
-        // Texture::new(&pixels, 128, 128)
-
-        // for (i, chr) in chr_data.chunks(16).enumerate() {
-        //     for y in 0..8 {
-        //         let line_byte_1 = chr[y];
-        //         let line_byte_2 = chr[8 + y];
-
-        //         for x in 0..8 {
-        //             let pixel_bit_1 = (line_byte_1 >> 7 - x) & 1;
-        //             let pixel_bit_2 = (line_byte_2 >> 7 - x) & 1;
-        //             let pixel_value = pixel_bit_1 + (pixel_bit_2 << 1);
-
-        //             let offset_x = (i * 8) % Nestalgic::PATTERN_TABLE_WIDTH;
-        //             let offset_y = (i / 16) * 8;
-        //             let pixel_x = offset_x + x;
-        //             let pixel_y = offset_y + y;
-
-        //             pixels[(pixel_y * Nestalgic::PATTERN_TABLE_WIDTH) + pixel_x] = match pixel_value {
-        //                 0 => Pixel::empty(),
-        //                 1 => Pixel::new(255, 0, 0, 255),
-        //                 2 => Pixel::new(0, 255, 0, 255),
-        //                 3 => Pixel::new(0, 0, 255, 255),
-        //                 _ => Pixel::new(255, 0, 255, 255)
-        //             };
-        //         }
-        //     }
-        // }
-
-        // pixels
+        Texture::from_bitplanes(&chr_data, 16, 128, 128)
     }
 }
