@@ -2,7 +2,7 @@
 name = "nestalgic"
 version = "0.1.0"
 authors = ["Jake Woods <jake@jakewoods.net>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 thiserror = "1.0"

@@ -123,6 +123,6 @@ impl NesTextureWindow {
 
             });
 
-        style.pop(ui);
+        style.pop();
     }
 }

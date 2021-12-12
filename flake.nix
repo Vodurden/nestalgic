@@ -34,21 +34,13 @@
             pkgs.wayland
           ];
 
-  # APPEND_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
-  #   libGL
-  #   vulkan-loader
-  #   xorg.libX11
-  #   xlibs.libXcursor
-  #   xlibs.libXi
-  #   xlibs.libXrandr
-  # ];
-
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
             pkgs.xlibs.libX11
             pkgs.xlibs.libXcursor
             pkgs.xlibs.libXrandr
             pkgs.xlibs.libXi
             pkgs.libxkbcommon
+            pkgs.vulkan-loader
             pkgs.wayland
             pkgs.xwayland
           ];

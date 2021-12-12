@@ -116,8 +116,8 @@ impl UI {
         // Render Dear ImGui with WGPU
         let mut rpass = wgpu_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("imgui"),
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: render_target,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: render_target,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
@@ -138,10 +138,10 @@ impl UI {
         chr_right_window: &mut NesTextureWindow,
     ) {
         ui.main_menu_bar(|| {
-            ui.menu(imgui::im_str!("Debug"), true, || {
-                imgui::MenuItem::new(imgui::im_str!("CHR Left"))
+            ui.menu("Debug", || {
+                imgui::MenuItem::new("CHR Left")
                     .build_with_ref(&ui, &mut chr_left_window.open);
-                imgui::MenuItem::new(imgui::im_str!("CHR Right"))
+                imgui::MenuItem::new("CHR Right")
                     .build_with_ref(&ui, &mut chr_right_window.open);
             });
         })

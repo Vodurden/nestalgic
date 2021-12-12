@@ -93,6 +93,8 @@ impl NestalgicUI {
                 &context.queue,
                 &context.device
             ).expect("failed to render imgui");
+
+            Ok(())
         })?;
 
         Ok(())

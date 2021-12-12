@@ -4,7 +4,10 @@ use imgui_wgpu::{Texture, TextureConfig};
 /// Extension methods for `imgui_wgpu::Texture`
 pub trait TextureExt {
     /// Create a new `imgui_wgpu::Texture` that uses `FilterMode::Nearest` for scaling.
-    fn new_with_nearest_scaling(device: &Device, config: TextureConfig) -> Texture;
+    fn new_with_nearest_scaling(
+        device: &Device,
+        config: TextureConfig
+    ) -> Texture;
 }
 
 impl TextureExt for Texture {
@@ -50,7 +53,7 @@ impl TextureExt for Texture {
             entries: &[
                 BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: BindingType::Texture {
                         multisampled: false,
                         sample_type: TextureSampleType::Float { filterable: true },
@@ -60,7 +63,7 @@ impl TextureExt for Texture {
                 },
                 BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: BindingType::Sampler {
                         comparison: false,
                         filtering: true,
