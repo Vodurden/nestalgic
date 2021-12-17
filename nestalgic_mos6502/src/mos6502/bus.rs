@@ -1,9 +1,11 @@
+use crate::MOS6502;
+
 use super::{NMI_VECTOR_ADDRESS, RESET_VECTOR_ADDRESS};
 
 pub trait Bus {
-    fn write_u8(&mut self, address: u16, data: u8);
-
     fn read_u8(&self, address: u16) -> u8;
+
+    fn write_u8(&mut self, address: u16, data: u8);
 
     /// Read a `u16` from the bus from `address`. Assumes the values are in _little endian_ order.
     fn read_u16(&self, address: u16) -> u16 {

@@ -1,7 +1,6 @@
-mod nrom;
-
-pub use nrom::NROM;
 use nestalgic_rom::nesrom::NESROM;
+
+use super::NROM;
 
 /// A mapper is hardware found on the NES cartridge that maps the addresses on the cartridge
 /// to the physical hardware.
@@ -20,7 +19,7 @@ pub trait Mapper {
 }
 
 impl dyn Mapper {
-    pub fn from_rom(rom: NESROM) -> Box<dyn Mapper> {
+    pub fn for_rom(rom: &NESROM) -> Box<dyn Mapper> {
         match rom.header.mapper_number {
             0 => Box::new(NROM::from_rom(rom)),
             _ => panic!("unsupported mapper number: {}", rom.header.mapper_number)
@@ -40,8 +39,10 @@ impl Mapper for NullMapper {
     fn cpu_read_u8(&self, _address: u16) -> u8 {
         0
     }
+
     fn cpu_write_u8(&mut self, _address: u16, _data: u8) {
     }
+
     fn ppu_read_u8(&self, _address: u16) -> u8 {
         0
     }

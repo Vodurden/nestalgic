@@ -1,13 +1,13 @@
-mod cpu_bus;
+mod nes_bus;
 mod rp2c02;
-mod mapper;
+mod cartridge;
 
+use cartridge::Cartridge;
 pub use nestalgic_rom::nesrom::NESROM;
 pub use rp2c02::{Texture, Pixel};
-use nestalgic_mos6502::mos6502::{MOS6502, DMA};
+use nestalgic_mos6502::{mos6502::{MOS6502, DMA}, Bus};
 use rp2c02::RP2C02;
-use mapper::Mapper;
-use cpu_bus::CpuBus;
+use nes_bus::new_nes_bus;
 
 use std::time::Duration;
 
@@ -15,9 +15,10 @@ type WRAM = [u8; 2048];
 
 pub struct Nestalgic {
     cpu: MOS6502,
-    wram: WRAM,
     ppu: RP2C02,
-    mapper: Box<dyn Mapper>,
+
+    wram: WRAM,
+    cartridge: Cartridge,
     // TODO: APU
     // TODO: Input
 
@@ -35,16 +36,18 @@ impl Nestalgic {
     pub const PATTERN_TABLE_WIDTH: usize = 128;
     pub const PATTERN_TABLE_HEIGHT: usize = 128;
 
-    pub fn new() -> Nestalgic {
-        Nestalgic {
+    pub fn new(rom: NESROM) -> Nestalgic {
+        let mut nestalgic = Nestalgic {
             cpu: Nestalgic::nes_cpu(),
             wram: [0; 2048],
             ppu: RP2C02::new(),
-            mapper: Box::new(mapper::NullMapper::new()),
+            cartridge: Cartridge::from_rom(rom),
 
             master_clock_speed: Duration::from_secs_f64(1.0 / 21.477272),
             time_since_last_master_cycle: Duration::new(0, 0),
-        }
+        };
+        nestalgic.reset();
+        nestalgic
     }
 
     fn nes_cpu() -> MOS6502 {
@@ -57,15 +60,13 @@ impl Nestalgic {
         MOS6502::new().with_dma(nes_dma)
     }
 
-    pub fn with_rom(mut self, rom: NESROM) -> Self {
-        self.mapper = <dyn Mapper>::from_rom(rom);
-        let mut cpu_bus = CpuBus {
-            wram: &mut self.wram,
-            ppu: &mut self.ppu,
-            mapper: &mut *self.mapper
-        };
-        self.cpu.reset(&mut cpu_bus).expect("Failed to reset CPU");
-        self
+    pub fn reset(&mut self) {
+        let mut nes_bus = nes_bus::new_nes_bus(
+            &mut self.wram,
+            &mut self.ppu,
+            &mut self.cartridge
+        );
+        self.cpu.reset(&mut nes_bus).expect("Failed to reset CPU");
     }
 
     /// Simulate the NES forward by `delta` time. Depending on how much time has elapsed this may:
@@ -83,15 +84,20 @@ impl Nestalgic {
     }
 
     pub fn cycle(&mut self) {
-        let mut cpu_bus = CpuBus {
-            wram: &mut self.wram,
-            ppu: &mut self.ppu,
-            mapper: &mut *self.mapper
-        };
-        self.cpu.cycle(&mut cpu_bus).expect("failed to cycle cpu");
-        self.ppu.cycle(&mut *self.mapper);
-        self.ppu.cycle(&mut *self.mapper);
-        self.ppu.cycle(&mut *self.mapper);
+        let mut nes_bus = new_nes_bus(
+            &mut self.wram,
+            &mut self.ppu,
+            &mut self.cartridge
+        );
+        // let ppu_bus = nes_bus.as_ppu_bus();
+
+        // let mut cpu_bus = nes_bus.as_cpu_bus();
+        // self.cpu.cycle(&mut cpu_bus).expect("failed to cycle cpu");
+
+        // let mut ppu_bus = cpu_bus.as_ppu_bus();
+        // self.ppu.cycle(&mut ppu_bus);
+        // self.ppu.cycle(&mut ppu_bus);
+        // self.ppu.cycle(&mut ppu_bus);
     }
 
     pub fn pixels(&self) -> &[Pixel; Nestalgic::SCREEN_PIXELS] {
@@ -100,7 +106,7 @@ impl Nestalgic {
 
     pub fn pattern_table_left(&self) -> Texture {
         let chr_data = (0..=0x0FFF)
-            .map(|a| self.mapper.ppu_read_u8(a as u16))
+            .map(|a| self.cartridge.mapper.ppu_read_u8(a as u16))
             .collect::<Vec<u8>>();
 
         Texture::from_bitplanes(&chr_data, 16, 128, 128)
@@ -108,7 +114,7 @@ impl Nestalgic {
 
     pub fn pattern_table_right(&self) -> Texture {
         let chr_data = (0x1000..=0x1FFF)
-            .map(|a| self.mapper.ppu_read_u8(a as u16))
+            .map(|a| self.cartridge.mapper.ppu_read_u8(a as u16))
             .collect::<Vec<u8>>();
 
         Texture::from_bitplanes(&chr_data, 16, 128, 128)
