@@ -37,7 +37,7 @@ impl Addressable {
         Ok(address)
     }
 
-    pub fn read(&self, cpu: &mut MOS6502, bus: &impl Bus) -> u8 {
+    pub fn read(&self, cpu: &mut MOS6502, bus: &mut impl Bus) -> u8 {
         match self.target {
             AddressableTarget::Accumulator => cpu.a,
             AddressableTarget::Immediate(value) => value,

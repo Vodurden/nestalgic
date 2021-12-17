@@ -37,7 +37,7 @@ impl Instruction {
     /// For most operations bytes_read and bytes_used will be the same. The exceptions are
     /// `AddressingMode::Implied` and `AddressingMode::Accumulator` where the 6502 reads
     /// 1 byte but uses 0
-    pub fn try_from_bus(start: Address, bus: &impl Bus) -> Result<(Instruction, CyclesTaken, BytesUsed)> {
+    pub fn try_from_bus(start: Address, bus: &mut impl Bus) -> Result<(Instruction, CyclesTaken, BytesUsed)> {
         let (signature, signature_cycles_taken, signature_bytes_used) = InstructionSignature::try_from_bus(start, bus)?;
         let (addressing, addressing_cycles_taken, addressing_bytes_used) = signature.addressing_mode.read_addressing(
             start + signature_bytes_used,
@@ -83,7 +83,7 @@ impl InstructionSignature {
     /// Attempt to read an `InstructionSignature` from `bus` at `address`.
     ///
     /// Returns either a failure or the `InstructionSignature` and the number of bytes read from the bus.
-    pub fn try_from_bus(address: Address, bus: &impl Bus) -> Result<(InstructionSignature, CyclesTaken, BytesUsed)> {
+    pub fn try_from_bus(address: Address, bus: &mut impl Bus) -> Result<(InstructionSignature, CyclesTaken, BytesUsed)> {
         let byte = bus.read_u8(address);
         let instruction_signature = InstructionSignature::try_from(byte)?;
 

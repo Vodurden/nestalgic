@@ -1,14 +1,12 @@
-use crate::MOS6502;
-
 use super::{NMI_VECTOR_ADDRESS, RESET_VECTOR_ADDRESS};
 
 pub trait Bus {
-    fn read_u8(&self, address: u16) -> u8;
+    fn read_u8(&mut self, address: u16) -> u8;
 
     fn write_u8(&mut self, address: u16, data: u8);
 
     /// Read a `u16` from the bus from `address`. Assumes the values are in _little endian_ order.
-    fn read_u16(&self, address: u16) -> u16 {
+    fn read_u16(&mut self, address: u16) -> u16 {
         let lo = self.read_u8(address);
         let hi = self.read_u8(address.wrapping_add(1));
         u16::from_le_bytes([lo, hi])
@@ -21,7 +19,7 @@ pub trait Bus {
         self.write_u8(address.wrapping_add(1), hi);
     }
 
-    fn read_range(&self, start: u16, end: u16) -> Vec<u8> {
+    fn read_range(&mut self, start: u16, end: u16) -> Vec<u8> {
         (start..end)
             .map(|a| self.read_u8(a))
             .collect()
@@ -80,7 +78,7 @@ impl Bus for RamBus16kb {
         self.memory[address as usize] = data;
     }
 
-    fn read_u8(&self, address: u16) -> u8 {
+    fn read_u8(&mut self, address: u16) -> u8 {
         self.memory[address as usize]
     }
 }

@@ -243,12 +243,12 @@ impl MOS6502 {
         Ok(())
     }
 
-    pub fn next_instruction(&self, bus: &impl Bus) -> Result<Instruction> {
+    pub fn next_instruction(&self, bus: &mut impl Bus) -> Result<Instruction> {
         let (instruction, _, _) = Instruction::try_from_bus(self.pc, bus)?;
         Ok(instruction)
     }
 
-    fn read_instruction(&mut self, bus: &impl Bus) -> Result<Instruction> {
+    fn read_instruction(&mut self, bus: &mut impl Bus) -> Result<Instruction> {
         // We always read an address, even for `implied` and `accumulate` addressing modes
         // to mimic the cycle behavior of the 6502.
         let (instruction, bytes_read, bytes_used) = Instruction::try_from_bus(self.pc, bus)?;
@@ -260,7 +260,7 @@ impl MOS6502 {
     }
 
 
-    fn read_u8(&mut self, bus: &impl Bus, address: Address) -> u8 {
+    fn read_u8(&mut self, bus: &mut impl Bus, address: Address) -> u8 {
         let byte = bus.read_u8(address);
         self.wait_cycles += 1;
 
@@ -425,7 +425,7 @@ impl MOS6502 {
         }
     }
 
-    fn pull_stack(&mut self, bus: &impl Bus, n: u32) -> Vec<u8> {
+    fn pull_stack(&mut self, bus: &mut impl Bus, n: u32) -> Vec<u8> {
         // Incrementing the stack pointer costs a cycle on the 6502
         self.sp = self.sp.wrapping_add(1);
         self.wait_cycles += 1;
@@ -446,7 +446,7 @@ impl MOS6502 {
         self.push_stack(bus, &[value]);
     }
 
-    fn pull_stack_u8(&mut self, bus: &impl Bus) -> u8{
+    fn pull_stack_u8(&mut self, bus: &mut impl Bus) -> u8{
         match self.pull_stack(bus, 1)[..] {
             [byte] => byte,
             _ => panic!("self.pull_stack(1) returned unexpected number of elements")
@@ -460,14 +460,14 @@ impl MOS6502 {
         self.push_stack(bus, &[hi, lo]);
     }
 
-    fn pull_stack_u16(&mut self, bus: &impl Bus) -> u16 {
+    fn pull_stack_u16(&mut self, bus: &mut impl Bus) -> u16 {
         match self.pull_stack(bus, 2)[..] {
             [lo, hi] => u16::from_le_bytes([lo, hi]),
             _ => panic!("self.pull_stack(1) returned unexpected number of elements")
         }
     }
 
-    fn try_read_instruction_target_address(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<Address> {
+    fn try_read_instruction_target_address(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<Address> {
         let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
@@ -475,7 +475,7 @@ impl MOS6502 {
         Ok(address)
     }
 
-    fn try_read_instruction_value(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<u8> {
+    fn try_read_instruction_value(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<u8> {
         let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
@@ -507,7 +507,7 @@ impl MOS6502 {
         Ok((input, output))
     }
 
-    fn op_nop(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+    fn op_nop(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
         // Nop is identical to any other read instruction except it throws away the value
         //
         // We ignore errors with reading during NOP since the "legal" NOP has an implied addressing
@@ -517,7 +517,7 @@ impl MOS6502 {
         Ok(())
     }
 
-    fn op_load(&mut self, bus: &impl Bus, register: Register, instruction: Instruction) -> Result<()> {
+    fn op_load(&mut self, bus: &mut impl Bus, register: Register, instruction: Instruction) -> Result<()> {
         let value = self.try_read_instruction_value(bus, instruction)?;
         self.write_register(register, value);
         Ok(())
@@ -526,7 +526,7 @@ impl MOS6502 {
     /// Special variant of `op_load` that loads into `A` and `X`
     ///
     /// Takes the same amount of time as a single `op_load`
-    fn op_lax(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+    fn op_lax(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
         let value = self.try_read_instruction_value(bus, instruction)?;
         self.write_register(Register::A, value);
         self.write_register(Register::X, value);
@@ -567,13 +567,13 @@ impl MOS6502 {
         Ok(())
     }
 
-    fn op_pull_stack(&mut self, bus: &impl Bus, target: Register) -> Result<()> {
+    fn op_pull_stack(&mut self, bus: &mut impl Bus, target: Register) -> Result<()> {
         let value = self.pull_stack_u8(bus);
         self.write_register(target, value);
         Ok(())
     }
 
-    fn op_jump(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+    fn op_jump(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
         let address = self.try_read_instruction_target_address(bus, instruction)?;
         self.pc = address;
         Ok(())
@@ -592,7 +592,7 @@ impl MOS6502 {
         Ok(())
     }
 
-    fn op_return(&mut self, bus: &impl Bus) -> Result<()> {
+    fn op_return(&mut self, bus: &mut impl Bus) -> Result<()> {
         let address = self.pull_stack_u16(bus);
 
         // Calculating the offset address costs 1 cycle on the 6502
@@ -601,7 +601,7 @@ impl MOS6502 {
         Ok(())
     }
 
-    fn op_return_from_interrupt(&mut self, bus: &impl Bus) -> Result<()> {
+    fn op_return_from_interrupt(&mut self, bus: &mut impl Bus) -> Result<()> {
         if let [p, pcl, pch] = self.pull_stack(bus, 3)[..] {
             self.write_register(Register::P, p);
             self.pc = u16::from_le_bytes([pcl, pch]);
@@ -611,7 +611,7 @@ impl MOS6502 {
         }
     }
 
-    fn op_branch_if(&mut self, bus: &impl Bus, instruction: Instruction, condition: bool) -> Result<()> {
+    fn op_branch_if(&mut self, bus: &mut impl Bus, instruction: Instruction, condition: bool) -> Result<()> {
         let (addressable, read_addressable_cycles) = instruction.addressing.read_addressable(&self, bus)?;
         self.wait_cycles += read_addressable_cycles;
 
@@ -627,14 +627,14 @@ impl MOS6502 {
         Ok(())
     }
 
-    fn op_logical(&mut self, bus: &impl Bus, instruction: Instruction, f: fn(u8, u8) -> u8) -> Result<()> {
+    fn op_logical(&mut self, bus: &mut impl Bus, instruction: Instruction, f: fn(u8, u8) -> u8) -> Result<()> {
         let value = self.try_read_instruction_value(bus, instruction)?;
         let result = f(self.a, value);
         self.write_register(Register::A, result);
         Ok(())
     }
 
-    fn op_bit(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+    fn op_bit(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
         let value = self.try_read_instruction_value(bus, instruction)?;
         let result = value & self.a;
 
@@ -644,7 +644,7 @@ impl MOS6502 {
         Ok(())
     }
 
-    fn op_add(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+    fn op_add(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
         let rhs = self.try_read_instruction_value(bus, instruction)?;
         self.add(Register::A, rhs)
     }
@@ -679,7 +679,7 @@ impl MOS6502 {
         Ok(())
     }
 
-    fn op_sub(&mut self, bus: &impl Bus, instruction: Instruction) -> Result<()> {
+    fn op_sub(&mut self, bus: &mut impl Bus, instruction: Instruction) -> Result<()> {
         let rhs = self.try_read_instruction_value(bus, instruction)?;
         self.subtract(Register::A, rhs)
     }
@@ -718,7 +718,7 @@ impl MOS6502 {
         Ok(())
     }
 
-    fn op_compare(&mut self, bus: &impl Bus, register: Register, instruction: Instruction) -> Result<()> {
+    fn op_compare(&mut self, bus: &mut impl Bus, register: Register, instruction: Instruction) -> Result<()> {
         let register = self.read_register(register);
         let value = self.try_read_instruction_value(bus, instruction)?;
         let result = register.wrapping_sub(value);

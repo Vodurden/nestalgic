@@ -118,7 +118,7 @@ impl AddressingMode {
     ///
     /// If successful, returns the `Addressing`, the number of cycles taken and the number of bytes used
     /// in the construction of the `Addressing`.
-    pub fn read_addressing(&self, start: Address, bus: &impl Bus) -> (Addressing, CyclesTaken, BytesUsed) {
+    pub fn read_addressing(&self, start: Address, bus: &mut impl Bus) -> (Addressing, CyclesTaken, BytesUsed) {
         match self {
             AddressingMode::Implied => {
                 // The 6502 always reads from the bus even if the `AddressingMode` doesn't actually use the value.
@@ -191,7 +191,7 @@ impl AddressingMode {
 }
 
 impl Addressing {
-    pub fn read_addressable(self, cpu: &MOS6502, bus: &impl Bus) -> Result<(Addressable, CyclesTaken)> {
+    pub fn read_addressable(self, cpu: &MOS6502, bus: &mut impl Bus) -> Result<(Addressable, CyclesTaken)> {
         match self {
             Addressing::Implied => Err(Error::InvalidTargetAddressAttempt(self)),
             Addressing::Accumulator => self.target_accumulator(),
@@ -241,7 +241,7 @@ impl Addressing {
 
     fn target_zero_page_indexed(
         self,
-        bus: &impl Bus,
+        bus: &mut impl Bus,
         address: u8,
         register: u8
     ) -> Result<(Addressable, CyclesTaken)> {
@@ -281,7 +281,7 @@ impl Addressing {
     fn target_indexed_indirect(
         self,
         cpu: &MOS6502,
-        bus: &impl Bus,
+        bus: &mut impl Bus,
         indexed_address: u8
     ) -> Result<(Addressable, CyclesTaken)> {
         // Adding `x` to the address costs 1 cycle on the 6502.
@@ -313,7 +313,7 @@ impl Addressing {
     fn target_indirect_indexed(
         self,
         cpu: &MOS6502,
-        bus: &impl Bus,
+        bus: &mut impl Bus,
         indexed_address: u8
     ) -> Result<(Addressable, CyclesTaken)> {
         let target_address_lo = indexed_address;
@@ -347,7 +347,7 @@ impl Addressing {
 
     fn target_indirect(
         self,
-        bus: &impl Bus,
+        bus: &mut impl Bus,
         target_address: Address
     ) -> Result<(Addressable, CyclesTaken)> {
         let address_lo = bus.read_u8(target_address);
