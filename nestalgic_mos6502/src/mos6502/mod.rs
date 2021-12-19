@@ -216,6 +216,7 @@ impl MOS6502 {
 
     /// Simulates maskable and non-maskable interrupts on the 6502
     fn interrupt(&mut self, bus: &mut impl Bus, interrupt: Interrupt) -> Result<()> {
+        println!("executing interrupt {:?}", interrupt);
         if interrupt.maskable() && self.p.get(StatusFlag::InterruptDisable) {
             return Ok(())
         }

@@ -61,7 +61,10 @@ impl Mapper for NROM {
             0x8000..=0xBFFF => self.prg_rom_bank_1[address as usize - 0x8000],
             0xC000..=0xFFFF => self.prg_rom_bank_2[address as usize - 0xC000],
             0x6000..=0x7FFF => self.prg_ram[address as usize - 0x6000],
-            _ => panic!("attempt to cpu_read from unmapped address {:04X}", address)
+            _ => {
+                println!("attempt to cpu_read from unmapped address {:04X}", address);
+                0
+            }
         }
     }
 
@@ -69,7 +72,9 @@ impl Mapper for NROM {
         match address {
             0x6000..=0x7FFF => self.prg_ram[address as usize - 0x6000] = data,
             0x8000..=0xFFFF => {},
-            _ => panic!("attempt to cpu_write to unmapped address {:04X}", address)
+            _ => {
+                println!("attempt to cpu_write to unmapped address {:04X}", address)
+            }
         }
     }
 

@@ -4,17 +4,25 @@ mod ppuctrl;
 mod ppumask;
 mod ppustatus;
 
-use nestalgic_mos6502::Bus;
+use nestalgic_mos6502::{Bus, MOS6502};
 pub use ppuctrl::PPUCtrl;
 pub use ppumask::PPUMask;
 pub use ppustatus::PPUStatus;
 pub use pixel::Pixel;
 pub use texture::Texture;
 
+use self::ppuctrl::PPUCtrlFlag;
+
 
 /// `RP2C02` emulates the NES PPU (a.k.a the `RP2C02`)
 pub struct RP2C02 {
     pub pixels: [Pixel; RP2C02::SCREEN_PIXELS],
+
+    /// What cycle we are on in our rendering algorithm
+    pub cycles: usize,
+
+    /// The scanline we are currently drawing to
+    pub scanline: u16,
 
     pub ppuctrl: PPUCtrl,
 
@@ -68,6 +76,8 @@ impl RP2C02 {
     pub fn new() -> RP2C02 {
         RP2C02 {
             pixels: [Pixel::empty(); RP2C02::SCREEN_PIXELS],
+            cycles: 0,
+            scanline: 0,
             ppuctrl: PPUCtrl::default(),
             ppumask: PPUMask::default(),
             ppustatus: PPUStatus::default(),
@@ -80,41 +90,57 @@ impl RP2C02 {
         }
     }
 
-    pub fn cycle(&mut self, bus: &mut impl Bus) {
+    pub fn cycle(&mut self, cpu: &mut MOS6502, bus: &mut impl Bus) {
+        self.cycles += 1;
+        if self.cycles >= 341 {
+            self.cycles = self.cycles - 341;
+            self.scanline += 1;
+
+            if self.scanline == 241 {
+                self.ppustatus.in_vblank = true;
+                if self.ppuctrl.get(PPUCtrlFlag::GenerateNmiOnVblank) {
+                    cpu.nmi = true;
+                }
+            } else if self.scanline >= 262 {
+                self.scanline = 0;
+                self.ppustatus.in_vblank = false;
+            }
+        }
+
         // Render first tile in pattern table 0 (0x0000-0x0FFF)
         //
         // Each tile is 8x8
         //
         // TODO: Render the last line of the pattern table without crashing
-        let chr_data = (0..7 * 1024)
-            .map(|a| bus.read_u8(a as u16))
-            .collect::<Vec<u8>>();
+        // let chr_data = (0..7 * 1024)
+        //     .map(|a| bus.read_u8(a as u16))
+        //     .collect::<Vec<u8>>();
 
-        for (i, chr) in chr_data.chunks(16).enumerate() {
-            for y in 0..8 {
-                let line_byte_1 = chr[y];
-                let line_byte_2 = chr[8 + y];
+        // for (i, chr) in chr_data.chunks(16).enumerate() {
+        //     for y in 0..8 {
+        //         let line_byte_1 = chr[y];
+        //         let line_byte_2 = chr[8 + y];
 
-                for x in 0..8 {
-                    let pixel_bit_1 = (line_byte_1 >> 7 - x) & 1;
-                    let pixel_bit_2 = (line_byte_2 >> 7 - x) & 1;
-                    let pixel_value = pixel_bit_1 + (pixel_bit_2 << 1);
+        //         for x in 0..8 {
+        //             let pixel_bit_1 = (line_byte_1 >> 7 - x) & 1;
+        //             let pixel_bit_2 = (line_byte_2 >> 7 - x) & 1;
+        //             let pixel_value = pixel_bit_1 + (pixel_bit_2 << 1);
 
-                    let offset_x = (i * 8) % RP2C02::SCREEN_WIDTH;
-                    let offset_y = (i / 16) * 8;
-                    let pixel_x = offset_x + x;
-                    let pixel_y = offset_y + y;
+        //             let offset_x = (i * 8) % RP2C02::SCREEN_WIDTH;
+        //             let offset_y = (i / 16) * 8;
+        //             let pixel_x = offset_x + x;
+        //             let pixel_y = offset_y + y;
 
-                    self.pixels[(pixel_y * RP2C02::SCREEN_WIDTH) + pixel_x] = match pixel_value {
-                        0 => Pixel::empty(),
-                        1 => Pixel::new(255, 0, 0, 255),
-                        2 => Pixel::new(0, 255, 0, 255),
-                        3 => Pixel::new(0, 0, 255, 255),
-                        _ => Pixel::new(255, 0, 255, 255)
-                    };
-                }
-            }
-        }
+        //             self.pixels[(pixel_y * RP2C02::SCREEN_WIDTH) + pixel_x] = match pixel_value {
+        //                 0 => Pixel::empty(),
+        //                 1 => Pixel::new(255, 0, 0, 255),
+        //                 2 => Pixel::new(0, 255, 0, 255),
+        //                 3 => Pixel::new(0, 0, 255, 255),
+        //                 _ => Pixel::new(255, 0, 255, 255)
+        //             };
+        //         }
+        //     }
+        // }
     }
 
 
@@ -141,6 +167,7 @@ impl RP2C02 {
     /// This function is only defined for addresses `0x2000-0x3FFF`, attempting to
     /// write outside this range will result in a panic.
     pub fn cpu_mapped_write_u8(&mut self, ppu_bus: &mut impl Bus, address: u16, data: u8) {
+        println!("ppu_write {:X} = {:08b}", address, data);
         match address {
             0x2000 => self.ppuctrl.0 = data,
             0x2001 => self.ppumask = PPUMask::from(data),

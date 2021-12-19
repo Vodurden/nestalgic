@@ -89,6 +89,6 @@ mod tests {
 
         let status_u8: u8 = status.into();
 
-        assert_eq!(status_u8, 0b1111_0101, "status was {:#08b}, expected {:#08b}", status_u8, 0b1111_0101);
+        assert_eq!(status_u8, 0b0000_0000, "status was {:#08b}, expected {:#08b}", status_u8, 0b0000_0000);
     }
 }

@@ -43,7 +43,7 @@ impl Nestalgic {
             ppu: RP2C02::new(),
             cartridge: Cartridge::from_rom(rom),
 
-            master_clock_speed: Duration::from_secs_f64(1.0 / 21.477272),
+            master_clock_speed: Duration::from_nanos(559),
             time_since_last_master_cycle: Duration::new(0, 0),
         };
         nestalgic.reset();
@@ -94,9 +94,9 @@ impl Nestalgic {
         let mut ppu_bus = PpuBus {
             cartridge: &mut self.cartridge
         };
-        self.ppu.cycle(&mut ppu_bus);
-        self.ppu.cycle(&mut ppu_bus);
-        self.ppu.cycle(&mut ppu_bus);
+        self.ppu.cycle(&mut self.cpu, &mut ppu_bus);
+        self.ppu.cycle(&mut self.cpu, &mut ppu_bus);
+        self.ppu.cycle(&mut self.cpu, &mut ppu_bus);
     }
 
     pub fn pixels(&self) -> &[Pixel; Nestalgic::SCREEN_PIXELS] {
