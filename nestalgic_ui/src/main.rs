@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod ui;
-mod nes_texture_debug;
+mod nes_texture_window;
 mod nestalgic_ui;
 mod ext;
 

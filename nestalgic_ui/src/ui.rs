@@ -4,7 +4,7 @@ use anyhow::{Result, Context};
 use nestalgic::Nestalgic;
 use imgui::Ui;
 
-use crate::nes_texture_debug::NesTextureWindow;
+use crate::nes_texture_window::NesTextureWindow;
 
 pub struct UI {
     imgui: imgui::Context,

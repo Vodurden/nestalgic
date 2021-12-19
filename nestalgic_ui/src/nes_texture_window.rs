@@ -115,7 +115,7 @@ impl NesTextureWindow {
                 let image_position = [
                     (content_region[0] - image_width[0]) * 0.5 + (window_size[0] - content_region[0]) * 0.5,
                     ui.cursor_pos()[1]
-                ];
+                ];uu
 
                 ui.set_cursor_pos(image_position);
 
