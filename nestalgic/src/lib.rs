@@ -14,8 +14,8 @@ use std::time::Duration;
 type WRAM = [u8; 2048];
 
 pub struct Nestalgic {
-    cpu: MOS6502,
-    ppu: RP2C02,
+    pub cpu: MOS6502,
+    pub ppu: RP2C02,
 
     wram: WRAM,
     cartridge: Cartridge,

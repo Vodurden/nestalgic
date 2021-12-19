@@ -20,8 +20,8 @@ pub struct RP2C02 {
 
     pub ppumask: PPUMask,
 
-    /// Backing field for `ppustatus`. Use `read_ppustatus()` to access.
-    ppustatus: PPUStatus,
+    /// Don't read directly from emulator, use `read_ppustatus` instead.
+    pub ppustatus: PPUStatus,
 
     pub oam_addr: u8,
     pub oam_data: [u8; 256],

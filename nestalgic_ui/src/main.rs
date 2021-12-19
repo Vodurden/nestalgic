@@ -3,6 +3,7 @@
 
 mod ui;
 mod nes_texture_window;
+mod nes_ppu_window;
 mod nestalgic_ui;
 mod ext;
 

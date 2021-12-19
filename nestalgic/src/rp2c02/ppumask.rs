@@ -79,3 +79,25 @@ impl From<u8> for PPUMask {
         }
     }
 }
+
+impl From<PPUMask> for u8 {
+    fn from(mask: PPUMask) -> Self {
+        let greyscale =                        (mask.greyscale as u8) << 0;
+        let show_background_on_left_8_pixels = (mask.show_background_on_left_8_pixels as u8) << 1;
+        let show_sprites_on_left_8_pixels =    (mask.show_sprites_on_left_8_pixels as u8) << 2;
+        let show_background =                  (mask.show_background as u8) << 3;
+        let show_sprites =                     (mask.show_sprites as u8) << 4;
+        let emphasise_red =                    (mask.emphasise_red as u8) << 5;
+        let emphasise_green =                  (mask.emphasise_green as u8) << 6;
+        let emphasise_blue =                   (mask.emphasise_blue as u8) << 7;
+
+        greyscale
+            | show_background_on_left_8_pixels
+            | show_sprites_on_left_8_pixels
+            | show_background
+            | show_sprites
+            | emphasise_red
+            | emphasise_green
+            | emphasise_blue
+    }
+}

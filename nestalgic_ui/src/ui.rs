@@ -4,13 +4,14 @@ use anyhow::{Result, Context};
 use nestalgic::Nestalgic;
 use imgui::Ui;
 
-use crate::nes_texture_window::NesTextureWindow;
+use crate::{nes_texture_window::NesTextureWindow, nes_ppu_window::NesPpuWindow};
 
 pub struct UI {
     imgui: imgui::Context,
     imgui_platform: imgui_winit_support::WinitPlatform,
     imgui_renderer: imgui_wgpu::Renderer,
 
+    ppu_window: NesPpuWindow,
     chr_left_window: NesTextureWindow,
     chr_right_window: NesTextureWindow,
 }
@@ -60,6 +61,8 @@ impl UI {
             &mut imgui, wgpu_device, wgpu_queue, config
         );
 
+        let ppu_window = NesPpuWindow::default();
+
         let chr_left_window = NesTextureWindow::new_chr_left_window(
             wgpu_device, &mut imgui_renderer
         );
@@ -73,6 +76,7 @@ impl UI {
             imgui_platform,
             imgui_renderer,
 
+            ppu_window,
             chr_left_window,
             chr_right_window,
         }
@@ -107,9 +111,11 @@ impl UI {
 
         UI::render_menu(
             &ui,
+            &mut self.ppu_window,
             &mut self.chr_left_window,
             &mut self.chr_right_window,
         );
+        self.ppu_window.render(&ui, nestalgic);
         self.chr_left_window.render(&ui, nestalgic, wgpu_queue, &mut self.imgui_renderer);
         self.chr_right_window.render(&ui, nestalgic, wgpu_queue, &mut self.imgui_renderer);
 
@@ -134,11 +140,14 @@ impl UI {
 
     fn render_menu(
         ui: &Ui,
+        ppu_window: &mut NesPpuWindow,
         chr_left_window: &mut NesTextureWindow,
         chr_right_window: &mut NesTextureWindow,
     ) {
         ui.main_menu_bar(|| {
             ui.menu("Debug", || {
+                imgui::MenuItem::new("PPU")
+                    .build_with_ref(&ui, &mut ppu_window.open);
                 imgui::MenuItem::new("CHR Left")
                     .build_with_ref(&ui, &mut chr_left_window.open);
                 imgui::MenuItem::new("CHR Right")
