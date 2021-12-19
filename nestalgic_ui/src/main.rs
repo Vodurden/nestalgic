@@ -24,7 +24,7 @@ fn main() -> Result<()> {
 
     let rom_file = include_bytes!("../../roms/donkey-kong.nes").to_vec();
     let rom = NESROM::from_bytes(rom_file).context("Failed to load ROM")?;
-    let nestalgic = Nestalgic::new().with_rom(rom);
+    let nestalgic = Nestalgic::new(rom);
 
     let event_loop = EventLoop::new();
     let mut input = WinitInputHelper::new();

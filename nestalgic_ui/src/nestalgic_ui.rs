@@ -72,6 +72,7 @@ impl NestalgicUI {
             // pixels.resize_buffer(width, height);
         }
 
+        self.nestalgic.tick(delta);
         self.ui.update(delta);
     }
 

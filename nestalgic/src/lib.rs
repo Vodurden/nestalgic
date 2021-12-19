@@ -3,11 +3,11 @@ mod rp2c02;
 mod cartridge;
 
 use cartridge::Cartridge;
+use nes_bus::{CpuBus, PpuBus};
 pub use nestalgic_rom::nesrom::NESROM;
 pub use rp2c02::{Texture, Pixel};
-use nestalgic_mos6502::{mos6502::{MOS6502, DMA}, Bus};
+use nestalgic_mos6502::mos6502::{MOS6502, DMA};
 use rp2c02::RP2C02;
-use nes_bus::new_nes_bus;
 
 use std::time::Duration;
 
@@ -61,12 +61,12 @@ impl Nestalgic {
     }
 
     pub fn reset(&mut self) {
-        let mut nes_bus = nes_bus::new_nes_bus(
-            &mut self.wram,
-            &mut self.ppu,
-            &mut self.cartridge
-        );
-        self.cpu.reset(&mut nes_bus).expect("Failed to reset CPU");
+        let mut cpu_bus = CpuBus {
+            wram: &mut self.wram,
+            ppu: &mut self.ppu,
+            cartridge: &mut self.cartridge
+        };
+        self.cpu.reset(&mut cpu_bus).expect("Failed to reset CPU");
     }
 
     /// Simulate the NES forward by `delta` time. Depending on how much time has elapsed this may:
@@ -84,20 +84,19 @@ impl Nestalgic {
     }
 
     pub fn cycle(&mut self) {
-        let mut nes_bus = new_nes_bus(
-            &mut self.wram,
-            &mut self.ppu,
-            &mut self.cartridge
-        );
-        // let ppu_bus = nes_bus.as_ppu_bus();
+        let mut cpu_bus = CpuBus {
+            wram: &mut self.wram,
+            ppu: &mut self.ppu,
+            cartridge: &mut self.cartridge
+        };
+        self.cpu.cycle(&mut cpu_bus).expect("failed to cycle cpu");
 
-        // let mut cpu_bus = nes_bus.as_cpu_bus();
-        // self.cpu.cycle(&mut cpu_bus).expect("failed to cycle cpu");
-
-        // let mut ppu_bus = cpu_bus.as_ppu_bus();
-        // self.ppu.cycle(&mut ppu_bus);
-        // self.ppu.cycle(&mut ppu_bus);
-        // self.ppu.cycle(&mut ppu_bus);
+        let mut ppu_bus = PpuBus {
+            cartridge: &mut self.cartridge
+        };
+        self.ppu.cycle(&mut ppu_bus);
+        self.ppu.cycle(&mut ppu_bus);
+        self.ppu.cycle(&mut ppu_bus);
     }
 
     pub fn pixels(&self) -> &[Pixel; Nestalgic::SCREEN_PIXELS] {
