@@ -138,7 +138,13 @@ impl MOS6502 {
 
         self.execute_interrupts(bus)?;
 
+        let instruction_pc = self.pc;
         let instruction = self.read_instruction(bus)?;
+        println!(
+            "{:04X}: {:15} (a:{:02X}, x:{:02X}, y:{:02X}, p:{:02X})",
+            instruction_pc, instruction,
+            self.a, self.x, self.y, self.p.0 & 0b1101_1111
+        );
         self.execute_instruction(bus, instruction)?;
 
         self.elapsed_cycles += 1;
@@ -398,7 +404,7 @@ impl MOS6502 {
 
         *register_ref = value;
 
-        // Writing to `P` and `SP` doesn't trigger the status flag calcilation
+        // Writing to `P` and `SP` doesn't trigger the status flag calculation
         if register != Register::P && register != Register::SP {
             self.p.set(StatusFlag::Zero, value == 0);
             self.p.set(StatusFlag::Negative, value & 0b1000_0000 > 0);

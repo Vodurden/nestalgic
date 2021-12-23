@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::fmt;
 
 use super::{Address, BytesUsed, CyclesTaken, Result};
 use super::bus::Bus;
@@ -53,6 +54,12 @@ impl Instruction {
         let bytes_used = signature_bytes_used + addressing_bytes_used;
 
         Ok((instruction, cycles_taken, bytes_used))
+    }
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        format!("{} {}", self.opcode, self.addressing).fmt(f)
     }
 }
 

@@ -128,7 +128,7 @@ impl <'a> Bus for CpuBus<'a> {
                 let value = self.ppu.cpu_mapped_read_u8(&mut ppu_bus, address);
                 value
             },
-            0x0000..=0x1FFF  => self.wram[(address & 0x0800) as usize],
+            0x0000..=0x1FFF  => self.wram[(address & 0x07FF) as usize],
             _ => 0
         }
     }
@@ -140,7 +140,7 @@ impl <'a> Bus for CpuBus<'a> {
                 let mut ppu_bus = PpuBus { cartridge: self.cartridge };
                 self.ppu.cpu_mapped_write_u8(&mut ppu_bus, address, data)
             },
-            0x0000..=0x1FFF => self.wram[(address & 0x0800) as usize] = data,
+            0x0000..=0x1FFF => self.wram[(address & 0x07FF) as usize] = data,
             _ => ()
         }
     }

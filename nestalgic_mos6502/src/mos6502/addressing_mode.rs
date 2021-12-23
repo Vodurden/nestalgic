@@ -109,7 +109,21 @@ impl fmt::Display for AddressingMode {
 
 impl fmt::Display for Addressing {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            Addressing::Implied => "".fmt(f),
+            Addressing::Accumulator => "".fmt(f),
+            Addressing::Immediate(value) => format!("$#{:02X}", value).fmt(f),
+            Addressing::ZeroPage(address) => format!("${:02X}", address).fmt(f),
+            Addressing::ZeroPageX(address) => format!("${:02X},X", address).fmt(f),
+            Addressing::ZeroPageY(address) => format!("${:02X},Y", address).fmt(f),
+            Addressing::Relative(address) => format!("${:02X}", address).fmt(f),
+            Addressing::IndexedIndirect(address) => format!("(${:02X},X)", address).fmt(f),
+            Addressing::IndirectIndexed(address) => format!("(${:02X}),Y", address).fmt(f),
+            Addressing::Indirect(address) => format!("(${:04X})", address).fmt(f),
+            Addressing::Absolute(address) => format!("${:04X}", address).fmt(f),
+            Addressing::AbsoluteX(address) => format!("${:04X},X", address).fmt(f),
+            Addressing::AbsoluteY(address) => format!("${:04X},Y", address).fmt(f),
+        }
     }
 }
 

@@ -107,6 +107,10 @@ impl RP2C02 {
             }
         }
 
+        if self.cycles >= 257 && self.cycles <= 320 {
+            self.oam_addr = 0;
+        }
+
         // Render first tile in pattern table 0 (0x0000-0x0FFF)
         //
         // Each tile is 8x8
@@ -147,7 +151,7 @@ impl RP2C02 {
     /// This function is only defined for addresses `0x2000-0x3FFF`, attempting to
     /// read outside this range will result in a panic.
     pub fn cpu_mapped_read_u8(&mut self, ppu_bus: &mut impl Bus, address: u16) -> u8 {
-        match address {
+        let data = match address {
             0x2000 => panic!("0x2000 is not readable"),
             0x2001 => panic!("0x2001 is not readable"),
             0x2002 => self.read_ppustatus().into(), // PPU Status
@@ -161,7 +165,11 @@ impl RP2C02 {
             0x2008..=0x3FFF => self.cpu_mapped_read_u8(ppu_bus, address & 0x2007),
 
             _ => panic!("cpu_mapped_read_u8 expects address in range 0x2000-0x3FFF, was {}", address)
-        }
+        };
+
+        println!("ppu_read {:X} -> {:08b}", address, data);
+
+        data
     }
 
     /// This function is only defined for addresses `0x2000-0x3FFF`, attempting to
