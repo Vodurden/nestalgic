@@ -36,16 +36,9 @@ impl NullMapper {
 }
 
 impl Mapper for NullMapper {
-    fn cpu_read_u8(&self, _address: u16) -> u8 {
-        0
-    }
+    fn cpu_read_u8(&self, _address: u16) -> u8 { 0 }
+    fn cpu_write_u8(&mut self, _address: u16, _data: u8) {}
 
-    fn cpu_write_u8(&mut self, _address: u16, _data: u8) {
-    }
-
-    fn ppu_read_u8(&self, _address: u16) -> u8 {
-        0
-    }
-    fn ppu_write_u8(&mut self, _address: u16, _data: u8) {
-    }
+    fn ppu_read_u8(&self, _address: u16) -> u8 { 0 }
+    fn ppu_write_u8(&mut self, _address: u16, _data: u8) {}
 }

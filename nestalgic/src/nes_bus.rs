@@ -152,11 +152,10 @@ pub struct PpuBus<'a> {
 
 impl <'a> Bus for PpuBus<'a> {
     fn read_u8(&mut self, address: u16) -> u8 {
-        // TODO
-        0
+        self.cartridge.mapper.ppu_read_u8(address)
     }
 
     fn write_u8(&mut self, address: u16, data: u8) {
-        // TODO
+        self.cartridge.mapper.ppu_write_u8(address, data)
     }
 }

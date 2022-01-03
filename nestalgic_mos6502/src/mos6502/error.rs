@@ -6,7 +6,7 @@ use super::addressable::AddressableTarget;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Invalid instruction: {0:x}")]
+    #[error("Invalid instruction: {0:X}")]
     InvalidInstruction(u8),
 
     #[error("Invalid attempt to target address with addressing: {0:?}")]

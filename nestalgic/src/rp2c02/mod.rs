@@ -91,6 +91,11 @@ impl RP2C02 {
     }
 
     pub fn cycle(&mut self, cpu: &mut MOS6502, bus: &mut impl Bus) {
+
+        // Cycle 0: Idle Cycle
+        // Cycles 1-256: Tile data fetch
+        // Cycles 257-320:
+
         self.cycles += 1;
         if self.cycles >= 341 {
             self.cycles = self.cycles - 341;
@@ -228,13 +233,13 @@ impl RP2C02 {
 
     pub fn read_ppudata(&mut self, bus: &mut impl Bus) -> u8 {
         // TODO: Mirror values above 0x3FFF
-        let value = bus.read_u8(self.addr);
+        let value = bus.read_u8(self.addr & 0x3FFF);
         self.addr += self.ppuctrl.vram_address_increment() as u16;
         value
     }
 
     pub fn write_ppudata(&mut self, bus: &mut impl Bus, data: u8) {
-        bus.write_u8(self.addr, data);
+        bus.write_u8(self.addr & 0x3FFF, data);
         self.addr += self.ppuctrl.vram_address_increment() as u16;
     }
 

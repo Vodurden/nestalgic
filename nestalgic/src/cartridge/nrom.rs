@@ -81,22 +81,28 @@ impl Mapper for NROM {
     fn ppu_read_u8(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x1FFF => self.chr_ram[address as usize],
-            0x2000..=0x23FF => self.nametable_1[address as usize],
-            0x2400..=0x27FF => self.nametable_2[address as usize],
-            0x2800..=0x2BFF => self.nametable_1[address as usize],
-            0x2C00..=0x2FFF => self.nametable_2[address as usize],
-            _ => panic!("attempt to ppu_read from unmapped address {:04X}", address)
+            0x2000..=0x23FF => self.nametable_1[(address - 0x2000) as usize],
+            0x2400..=0x27FF => self.nametable_2[(address - 0x2400)as usize],
+            0x2800..=0x2BFF => self.nametable_1[(address - 0x2800)as usize],
+            0x2C00..=0x2FFF => self.nametable_2[(address - 0x2C00)as usize],
+            0x3000..=0x3EFF => self.ppu_read_u8(address & 0x2FFF),
+            0x3F00..=0x3F1F => 0,
+            0x3F20..=0x3FFF => self.ppu_read_u8(address & 0x3F1F),
+            _ => panic!("attempt to ppu_read from unmapped address 0x{:04X}", address)
         }
     }
 
     fn ppu_write_u8(&mut self, address: u16, data: u8) {
         match address {
             0x0000..=0x1FFF => self.chr_ram[address as usize] = data,
-            0x2000..=0x23FF => self.nametable_1[address as usize] = data,
-            0x2400..=0x27FF => self.nametable_2[address as usize] = data,
-            0x2800..=0x2BFF => self.nametable_1[address as usize] = data,
-            0x2C00..=0x2FFF => self.nametable_2[address as usize] = data,
-            _ => panic!("attempt to ppu_read from unmapped address {:04X}", address)
+            0x2000..=0x23FF => self.nametable_1[(address - 0x2000) as usize] = data,
+            0x2400..=0x27FF => self.nametable_2[(address - 0x2400)as usize] = data,
+            0x2800..=0x2BFF => self.nametable_1[(address - 0x2800)as usize] = data,
+            0x2C00..=0x2FFF => self.nametable_2[(address - 0x2C00)as usize] = data,
+            0x3000..=0x3EFF => self.ppu_write_u8(address & 0x2FFF, data),
+            0x3F00..=0x3F1F => println!("palette ram write"),
+            0x3F20..=0x3FFF => self.ppu_write_u8(address & 0x3F1F, data),
+            _ => panic!("attempt to ppu_write to unmapped address 0x{:04X}", address)
         }
     }
 }
